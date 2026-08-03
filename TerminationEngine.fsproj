@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="FsLexYacc" Version="11.4.0" PrivateAssets="all" />
+    <PackageReference Include="FsLexYacc.Runtime" Version="11.4.0" />
+  </ItemGroup>
+  <PropertyGroup>
+    <GeneratedParserDir>$(BaseIntermediateOutputPath)Generated\</GeneratedParserDir>
+    <FsLexOutputFolder>$(GeneratedParserDir)</FsLexOutputFolder>
+    <FsYaccOutputFolder>$(GeneratedParserDir)</FsYaccOutputFolder>
+  </PropertyGroup>
+  <ItemGroup>
+    <FsYacc Include="KoatGrammar.fsy"><OtherFlags>--module TerminationEngine.KoatGrammar</OtherFlags></FsYacc>
+    <FsLex Include="KoatLexer.fsl"><OtherFlags>--module TerminationEngine.KoatLexer --unicode</OtherFlags></FsLex>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Syntax.fs" />
+    <Compile Include="$(GeneratedParserDir)KoatGrammar.fs" />
+    <Compile Include="$(GeneratedParserDir)KoatLexer.fs" />
+    <Compile Include="KoatParser.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+</Project>

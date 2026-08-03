@@ -1,0 +1,88 @@
+%{
+open FSharp.Text.Parsing
+open TerminationEngine
+
+let private sourcePosition (position: Position) =
+    { TerminationEngine.SourcePosition.Line = position.Line + 1; Column = position.Column + 1 }
+%}
+
+%token <string> IDENT
+%token <int64> NUMBER
+%token GOAL STARTTERM FUNCTIONSYMBOLS VAR RULES
+%token LPAREN RPAREN LBRACKET RBRACKET COMMA
+%token PLUS MINUS STAR ARROW
+%token EQUAL NOTEQUAL LESS LESSEQUAL GREATER GREATEREQUAL
+%token ANDAND OROR BANG EOF
+
+%left OROR
+%left ANDAND
+%right BANG
+%left PLUS MINUS
+%left STAR
+%nonassoc UMINUS
+
+%start program
+%type <TerminationEngine.TransitionSystem> program
+
+%%
+
+program:
+    LPAREN GOAL IDENT RPAREN
+    LPAREN STARTTERM LPAREN FUNCTIONSYMBOLS IDENT RPAREN RPAREN
+    LPAREN VAR identifiers RPAREN
+    LPAREN RULES rules RPAREN EOF
+        { { Goal = $3; Start = $9; Variables = $14; Rules = $18 } }
+
+identifiers:
+    |                         { [] }
+    | IDENT identifiers       { $1 :: $2 }
+
+rules:
+    |                         { [] }
+    | rule rules              { $1 :: $2 }
+
+rule:
+    term ARROW term optionalGuard
+        { let startPosition = sourcePosition (parseState.InputStartPosition 1)
+          let finishPosition = sourcePosition (parseState.InputEndPosition 4)
+          { TerminationEngine.Rule.Source = $1; Target = $3; Guard = $4
+            Span = { Start = startPosition; Finish = finishPosition } } }
+
+optionalGuard:
+    |                         { None }
+    | LBRACKET boolExpr RBRACKET { Some $2 }
+
+term:
+    IDENT LPAREN arguments RPAREN { { Symbol = $1; Arguments = $3 } }
+
+arguments:
+    |                         { [] }
+    | intExpr moreArguments   { $1 :: $2 }
+
+moreArguments:
+    |                         { [] }
+    | COMMA intExpr moreArguments { $2 :: $3 }
+
+intExpr:
+    | NUMBER                  { Integer $1 }
+    | IDENT                   { Variable $1 }
+    | MINUS intExpr %prec UMINUS { Negate $2 }
+    | intExpr PLUS intExpr    { Add($1, $3) }
+    | intExpr MINUS intExpr   { Subtract($1, $3) }
+    | intExpr STAR intExpr    { Multiply($1, $3) }
+    | LPAREN intExpr RPAREN   { $2 }
+
+boolExpr:
+    | comparison              { $1 }
+    | BANG boolExpr           { Not $2 }
+    | boolExpr ANDAND boolExpr { And($1, $3) }
+    | boolExpr OROR boolExpr  { Or($1, $3) }
+    | LPAREN boolExpr RPAREN  { $2 }
+
+comparison:
+    | intExpr EQUAL intExpr        { Compare(Eq, $1, $3) }
+    | intExpr NOTEQUAL intExpr     { Compare(NotEq, $1, $3) }
+    | intExpr LESS intExpr         { Compare(Lt, $1, $3) }
+    | intExpr LESSEQUAL intExpr    { Compare(Le, $1, $3) }
+    | intExpr GREATER intExpr      { Compare(Gt, $1, $3) }
+    | intExpr GREATEREQUAL intExpr { Compare(Ge, $1, $3) }

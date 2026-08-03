@@ -1,0 +1,11 @@
+/*
+/.**
+
+!/.gitignore
+!/README.md
+!/TerminationEngine.fsproj
+!/Syntax.fs
+!/KoatLexer.fsl
+!/KoatGrammar.fsy
+!/KoatParser.fs
+!/Program.fs

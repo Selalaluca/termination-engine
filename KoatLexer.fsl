@@ -1,0 +1,51 @@
+{
+open System
+open FSharp.Text.Lexing
+open TerminationEngine
+open TerminationEngine.KoatGrammar
+
+let private position (lexbuf: LexBuffer<char>) =
+    { SourcePosition.Line = lexbuf.StartPos.Line + 1; Column = lexbuf.StartPos.Column + 1 }
+
+let private lexicalError lexbuf message =
+    raise (KoatParseException { Position = position lexbuf; Message = message })
+}
+
+let digit = ['0'-'9']
+let identStart = ['A'-'Z' 'a'-'z' '_' '$']
+let identRest = ['A'-'Z' 'a'-'z' '0'-'9' '_' '$' '.']
+let whitespace = [' ' '\t' '\r']
+
+rule token = parse
+| whitespace+            { token lexbuf }
+| '\n'                   { lexbuf.EndPos <- lexbuf.EndPos.NextLine; token lexbuf }
+| '#' [^ '\n']*         { token lexbuf }
+| "GOAL"                 { GOAL }
+| "STARTTERM"            { STARTTERM }
+| "FUNCTIONSYMBOLS"      { FUNCTIONSYMBOLS }
+| "VAR"                  { VAR }
+| "RULES"                { RULES }
+| "->"                   { ARROW }
+| "!="                   { NOTEQUAL }
+| "<="                   { LESSEQUAL }
+| ">="                   { GREATEREQUAL }
+| "&&"                   { ANDAND }
+| "||"                   { OROR }
+| '('                    { LPAREN }
+| ')'                    { RPAREN }
+| '['                    { LBRACKET }
+| ']'                    { RBRACKET }
+| ','                    { COMMA }
+| '+'                    { PLUS }
+| '-'                    { MINUS }
+| '*'                    { STAR }
+| '='                    { EQUAL }
+| '<'                    { LESS }
+| '>'                    { GREATER }
+| '!'                    { BANG }
+| digit+                 { match Int64.TryParse(LexBuffer<char>.LexemeString lexbuf) with
+                           | true, value -> NUMBER value
+                           | _ -> lexicalError lexbuf "整数リテラルがInt64の範囲を超えています。" }
+| identStart identRest*  { IDENT(LexBuffer<char>.LexemeString lexbuf) }
+| eof                    { EOF }
+| _                      { lexicalError lexbuf (sprintf "不正な文字です: '%s'" (LexBuffer<char>.LexemeString lexbuf)) }
