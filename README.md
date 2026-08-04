@@ -3,7 +3,7 @@
 KoAT形式の整数遷移系を読み込み、停止性を解析するためのF#プロジェクト。
 
 FsLex/FsYaccによるKoATパーサーと意味検査、および開始位置から到達可能な制御フローのSCC分解を実装している。
-現在は閉路がなければ(つまり全体の遷移グラフがDAGなら)`YES`、循環が残れば`MAYBE`と判定する。`NO`の証明は未実装。
+現在は閉路がなければ（つまり全体の遷移グラフがDAGなら）`YES`、ガードなしで全域的に定義された自己ループへ同種の経路で到達できれば`NO`、それ以外の循環は`MAYBE`と出力する。
 
 ## 必要環境
 
@@ -12,10 +12,8 @@ FsLex/FsYaccによるKoATパーサーと意味検査、および開始位置か�
 
 ## ビルド
 
-ワークスペースのルートから実行する。
-
 ```powershell
-dotnet build termination-engine\TerminationEngine.fsproj
+dotnet build
 ```
 
 FsLex/FsYaccがビルド時に次のファイルからLexerとParserを生成する。
@@ -27,22 +25,18 @@ KoatGrammar.fsy -> obj/Generated/KoatGrammar.fs
 
 生成された`.fs`は編集しない。字句や文法を変更する場合は`.fsl`または`.fsy`を編集する。
 
-## CLI
+## 使い方
 
 ```powershell
-dotnet run --project termination-engine\TerminationEngine.fsproj -- input.koat
+dotnet run -- input.koat
 ```
 
-例:
-
-```powershell
-dotnet run --project termination-engine\TerminationEngine.fsproj -- cil2koat\tests\golden\Linear.koat
-```
-
-非循環入力の出力:
+最終的な出力：
 
 ```text
-YES
+YES    停止を証明した
+NO     非停止を証明した
+MAYBE  どちらも証明できなかった
 ```
 
 構文・意味エラーはファイル名、行、列とともに標準エラーへ出力する。
@@ -94,7 +88,9 @@ input.koat(5,7): KoATの構文が正しくありません。
   -> Graph.fs（制御フローグラフ）
   -> Scc.fs（開始位置からTarjan法）
   -> Analysis.fs（循環SCCの分類）
-  -> Report.fs（YESまたはMAYBE）
+  -> ExpressionAnalysis.fs（式と規則の全域性検査）
+  -> NonTermination.fs（自明な非停止証明）
+  -> Report.fs（YES、NO、MAYBE）
 ```
 
 パーサーは規則ごとに元ファイルの行・列を保持する。これは将来、停止性の判定理由や非停止経路を入力規則へ対応付けるために使用する。
@@ -123,25 +119,7 @@ match KoatParser.tryParse text with
     printfn "%d:%d %s" error.Position.Line error.Position.Column error.Message
 ```
 
-## テスト
-
-```powershell
-dotnet run --project termination-engine\tests\TerminationEngine.Tests.fsproj
-```
-
-現在のテスト対象:
-
-- `cil2koat`が生成したKoATファイル
-- コメントと演算子の優先順位
-- 規則の入力位置
-- 未宣言変数
-- 関数記号の引数数不一致
-- 構文エラーの位置
-- 除算・剰余の優先順位と結合
-- 到達不能な循環の除外
-- 複数ノードSCCと自己ループSCC
-
-## ファイル構成
+# ファイル構成
 
 ```text
 termination-engine/
@@ -151,19 +129,11 @@ termination-engine/
   KoatParser.fs                パーサーFacadeと意味検査
   Graph.fs                     制御フローグラフ構築
   Scc.fs                       開始位置からのTarjan SCC分解
+  ExpressionAnalysis.fs        式と規則の共通解析
+  NonTermination.fs            自明な非停止証明
   Analysis.fs                  循環SCCの分類と初期判定
   Report.fs                    判定結果の表示
   Program.fs                   CLI
   TerminationEngine.fsproj     本体プロジェクト
-  tests/
-    Program.fs                 テスト本体
-    TerminationEngine.Tests.fsproj
 ```
 
-最終的な出力は次のいずれかになる。
-
-```text
-YES    停止を証明した
-NO     非停止を証明した
-MAYBE  どちらも証明できなかった
-```

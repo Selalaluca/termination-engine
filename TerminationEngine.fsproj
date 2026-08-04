@@ -20,6 +20,8 @@
     <Compile Include="KoatParser.fs" />
     <Compile Include="Graph.fs" />
     <Compile Include="Scc.fs" />
+    <Compile Include="ExpressionAnalysis.fs" />
+    <Compile Include="NonTermination.fs" />
     <Compile Include="Analysis.fs" />
     <Compile Include="Report.fs" />
     <Compile Include="Program.fs" />
