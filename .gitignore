@@ -8,4 +8,10 @@
 !/KoatLexer.fsl
 !/KoatGrammar.fsy
 !/KoatParser.fs
+!/Graph.fs
+!/Scc.fs
+!/ExpressionAnalysis.fs
+!/NonTermination.fs
+!/Analysis.fs
+!/Report.fs
 !/Program.fs
