@@ -14,7 +14,9 @@ module KoatParser =
             | Negate value -> collect acc value
             | Add (left, right)
             | Subtract (left, right)
-            | Multiply (left, right) -> collect (collect acc left) right
+            | Multiply (left, right)
+            | Divide (left, right)
+            | Mod (left, right) -> collect (collect acc left) right
         collect Set.empty expression
 
     let private variablesInBool expression =

@@ -1,8 +1,9 @@
-# Termination engine
+# Halting Analyzer
 
 KoAT形式の整数遷移系を読み込み、停止性を解析するためのF#プロジェクト。
 
-現在はFsLex/FsYaccによるKoATパーサーと意味検査まで実装している。停止性の`YES`、`NO`、`MAYBE`判定は未実装であり、現在のCLIは解析した遷移系の概要を表示する。
+現在はFsLex/FsYaccによるKoATパーサーと意味検査まで。
+停止性の`YES`、`NO`、`MAYBE`判定は未実装であり、現在のCLIは解析した遷移系の概要を表示する。
 
 ## 必要環境
 
@@ -147,15 +148,6 @@ termination-engine/
     Program.fs                 テスト本体
     TerminationEngine.Tests.fsproj
 ```
-
-## 今後の実装
-
-1. 制御位置グラフの構築と開始位置からの到達可能性
-2. SCC分解
-3. 非循環遷移系の停止証明
-4. 明白に反復可能な自己ループの非停止証明
-5. その他の循環に対する`MAYBE`
-6. ランキング関数、証明書、独立チェッカー
 
 最終的な出力は先頭行を次のいずれかにする。
 

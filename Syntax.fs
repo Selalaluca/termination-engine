@@ -10,6 +10,8 @@ type IntExpr =
     | Add of IntExpr * IntExpr
     | Subtract of IntExpr * IntExpr
     | Multiply of IntExpr * IntExpr
+    | Divide of IntExpr * IntExpr
+    | Mod of IntExpr * IntExpr
     | Negate of IntExpr
 
 type Comparison = Eq | NotEq | Lt | Le | Gt | Ge

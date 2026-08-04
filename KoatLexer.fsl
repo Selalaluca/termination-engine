@@ -38,7 +38,9 @@ rule token = parse
 | ','                    { COMMA }
 | '+'                    { PLUS }
 | '-'                    { MINUS }
-| '*'                    { STAR }
+| '*'                    { TIMES }
+| '/'                    { DIVIDE }
+| '%'                    { MOD }
 | '='                    { EQUAL }
 | '<'                    { LESS }
 | '>'                    { GREATER }
