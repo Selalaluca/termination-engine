@@ -2,8 +2,8 @@
 
 KoAT形式の整数遷移系を読み込み、停止性を解析するためのF#プロジェクト。
 
-現在はFsLex/FsYaccによるKoATパーサーと意味検査まで。
-停止性の`YES`、`NO`、`MAYBE`判定は未実装であり、現在のCLIは解析した遷移系の概要を表示する。
+FsLex/FsYaccによるKoATパーサーと意味検査、および開始位置から到達可能な制御フローのSCC分解を実装している。
+現在は閉路がなければ(つまり全体の遷移グラフがDAGなら)`YES`、循環が残れば`MAYBE`と判定する。`NO`の証明は未実装。
 
 ## 必要環境
 
@@ -39,10 +39,10 @@ dotnet run --project termination-engine\TerminationEngine.fsproj -- input.koat
 dotnet run --project termination-engine\TerminationEngine.fsproj -- cil2koat\tests\golden\Linear.koat
 ```
 
-現在の成功出力:
+非循環入力の出力:
 
 ```text
-parsed: start=block_0000 variables=1 rules=3
+YES
 ```
 
 構文・意味エラーはファイル名、行、列とともに標準エラーへ出力する。
@@ -75,13 +75,13 @@ input.koat(5,7): KoATの構文が正しくありません。
 
 - `GOAL`、`STARTTERM`、`FUNCTIONSYMBOLS`、`VAR`、`RULES`
 - 整数、変数、単項マイナス
-- 加算、減算、乗算、括弧
+- 加算、減算、乗算、除算、剰余、括弧
 - `=`、`!=`、`<`、`<=`、`>`、`>=`
 - `!`、`&&`、`||`
 - 省略可能な角括弧形式のガード
 - `#`から行末までのコメント
 
-除算、剰余、量化、KoATの他方言にある構文には未対応。
+量化とKoATの他方言にある構文には未対応。除算と剰余は構文木へ保持するが、停止性解析上の意味付けは未実装。
 
 ## 処理の流れ
 
@@ -91,6 +91,10 @@ input.koat(5,7): KoATの構文が正しくありません。
   -> KoatGrammar.fsy（構文解析）
   -> TransitionSystem（型付き内部表現）
   -> KoatParser.fs（意味検査）
+  -> Graph.fs（制御フローグラフ）
+  -> Scc.fs（開始位置からTarjan法）
+  -> Analysis.fs（循環SCCの分類）
+  -> Report.fs（YESまたはMAYBE）
 ```
 
 パーサーは規則ごとに元ファイルの行・列を保持する。これは将来、停止性の判定理由や非停止経路を入力規則へ対応付けるために使用する。
@@ -133,6 +137,9 @@ dotnet run --project termination-engine\tests\TerminationEngine.Tests.fsproj
 - 未宣言変数
 - 関数記号の引数数不一致
 - 構文エラーの位置
+- 除算・剰余の優先順位と結合
+- 到達不能な循環の除外
+- 複数ノードSCCと自己ループSCC
 
 ## ファイル構成
 
@@ -142,6 +149,10 @@ termination-engine/
   KoatLexer.fsl                FsLex字句規則
   KoatGrammar.fsy              FsYacc文法規則
   KoatParser.fs                パーサーFacadeと意味検査
+  Graph.fs                     制御フローグラフ構築
+  Scc.fs                       開始位置からのTarjan SCC分解
+  Analysis.fs                  循環SCCの分類と初期判定
+  Report.fs                    判定結果の表示
   Program.fs                   CLI
   TerminationEngine.fsproj     本体プロジェクト
   tests/
@@ -149,7 +160,7 @@ termination-engine/
     TerminationEngine.Tests.fsproj
 ```
 
-最終的な出力は先頭行を次のいずれかにする。
+最終的な出力は次のいずれかになる。
 
 ```text
 YES    停止を証明した

@@ -18,6 +18,10 @@
     <Compile Include="$(GeneratedParserDir)KoatGrammar.fs" />
     <Compile Include="$(GeneratedParserDir)KoatLexer.fs" />
     <Compile Include="KoatParser.fs" />
+    <Compile Include="Graph.fs" />
+    <Compile Include="Scc.fs" />
+    <Compile Include="Analysis.fs" />
+    <Compile Include="Report.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 </Project>

@@ -10,7 +10,8 @@ let main args =
     else
         try
             let system = File.ReadAllText args[0] |> KoatParser.parse
-            printfn "parsed: start=%s variables=%d rules=%d" system.Start system.Variables.Length system.Rules.Length
+            let graph, _, result = Analysis.analyse system
+            printfn "%s" (Report.render graph result)
             0
         with
         | KoatParseException error ->
