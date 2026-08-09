@@ -52,5 +52,10 @@ module Analysis =
             else
                 match NonTermination.tryProveObvious graph with
                 | Some witness -> No witness
-                | None -> Maybe cyclic
+                | None ->
+                    if cyclic |> Array.forall (fun cyclicComponent ->
+                        cyclicComponent.InternalEdges
+                        |> Ranking.tryFindProjection
+                        |> Option.isSome) then Yes
+                    else Maybe cyclic
         graph, scc, result

@@ -3,17 +3,17 @@
 KoAT形式の整数遷移系を読み込み、停止性を解析するためのF#プロジェクト。
 
 FsLex/FsYaccによるKoATパーサーと意味検査、および開始位置から到達可能な制御フローのSCC分解を実装している。
-現在は閉路がなければ（つまり全体の遷移グラフがDAGなら）`YES`、ガードなしで全域的に定義された自己ループへ同種の経路で到達できれば`NO`、それ以外の循環は`MAYBE`と出力する。
+現在は、閉路がない場合に加え、すべての到達可能な循環SCCに射影ランキング関数を発見できた場合も`YES`とする。ガードなしで全域的に定義された自己ループへ同種の経路で到達できれば`NO`、どちらも証明できない循環は`MAYBE`と出力する。
 
 ## 必要環境
 
 - .NET SDK 10
-- NuGetから復元されるFsLexYacc 11.4.0
+- FsLexYacc 11.4.0
 
 ## ビルド
 
 ```powershell
-dotnet build
+dotnet build TerminationEngine.fsproj
 ```
 
 FsLex/FsYaccがビルド時に次のファイルからLexerとParserを生成する。
@@ -28,7 +28,7 @@ KoatGrammar.fsy -> obj/Generated/KoatGrammar.fs
 ## 使い方
 
 ```powershell
-dotnet run -- input.koat
+dotnet run --project TerminationEngine.fsproj -- input.koat
 ```
 
 最終的な出力：
@@ -77,6 +77,33 @@ input.koat(5,7): KoATの構文が正しくありません。
 
 量化とKoATの他方言にある構文には未対応。除算と剰余は構文木へ保持するが、停止性解析上の意味付けは未実装。
 
+## 射影ランキング関数
+
+循環SCCの停止証明では、状態の引数を1つ選ぶ次のランキング関数を探索する。
+
+```text
+rho(x1,...,xn) = xi
+rho(x1,...,xn) = -xi
+```
+
+候補がSCC内のすべての内部遷移について次を満たす場合、そのSCCは停止すると判定する。
+
+1. ガードからランキング値が非負であると確認できる。
+2. 遷移によってランキング値が1以上減少する。
+
+例:
+
+```text
+loop(x) -> loop(x - 1) [x > 0]  # rho = x
+loop(x) -> loop(x + 1) [x < 0]  # rho = -x
+```
+
+非負性は、論理積に含まれる線形な比較から保守的に確認する。候補探索では定数倍を含む線形式を扱えるが、変数同士の乗算、除算、剰余、論理和などについて証明できない場合は`YES`とせず`MAYBE`に残す。
+
+現在の方式では、SCC内の全内部遷移で同じ引数射影が厳密に減少する必要がある。`x + y`のような一般線形ランキング、辞書式ランキング、多相ランキングには未対応。
+
+複数の到達可能な循環SCCがある場合は、すべてのSCCを証明できたときだけ全体を`YES`とする。
+
 ## 処理の流れ
 
 ```text
@@ -87,9 +114,10 @@ input.koat(5,7): KoATの構文が正しくありません。
   -> KoatParser.fs（意味検査）
   -> Graph.fs（制御フローグラフ）
   -> Scc.fs（開始位置からTarjan法）
-  -> Analysis.fs（循環SCCの分類）
   -> ExpressionAnalysis.fs（式と規則の全域性検査）
   -> NonTermination.fs（自明な非停止証明）
+  -> Ranking.fs（射影ランキング関数の探索と検査）
+  -> Analysis.fs（循環SCCの分類と判定の統合）
   -> Report.fs（YES、NO、MAYBE）
 ```
 
@@ -131,9 +159,9 @@ termination-engine/
   Scc.fs                       開始位置からのTarjan SCC分解
   ExpressionAnalysis.fs        式と規則の共通解析
   NonTermination.fs            自明な非停止証明
-  Analysis.fs                  循環SCCの分類と初期判定
+  Ranking.fs                   射影ランキング関数の探索と検査
+  Analysis.fs                  循環SCCの分類と判定の統合
   Report.fs                    判定結果の表示
   Program.fs                   CLI
   TerminationEngine.fsproj     本体プロジェクト
 ```
-
