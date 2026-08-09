@@ -20,8 +20,13 @@
     <Compile Include="KoatParser.fs" />
     <Compile Include="Graph.fs" />
     <Compile Include="Scc.fs" />
+    <Compile Include="Components.fs" />
     <Compile Include="ExpressionAnalysis.fs" />
     <Compile Include="NonTermination.fs" />
+    <Compile Include="LinearArithmetic.fs" />
+    <Compile Include="RankingCertificate.fs" />
+    <Compile Include="RankingVerification.fs" />
+    <Compile Include="RankingSynthesis.fs" />
     <Compile Include="Ranking.fs" />
     <Compile Include="Analysis.fs" />
     <Compile Include="Report.fs" />

@@ -9,7 +9,8 @@ type NonTerminationWitness = {
 }
 
 module NonTermination =
-    /// Finds an unguarded, everywhere-defined path to an equally safe self-loop.
+    /// ガードなし・全域的な辺だけで到達できる、同じ性質の自己ループを探す。
+    /// 入力値に依存せずstemとloopを実行できる場合だけNOにするため、意図的に保守的である。
     let tryProveObvious (graph: ControlFlowGraph) =
         let visited = Array.create graph.Names.Length false
         let predecessor: Edge option array = Array.create graph.Names.Length None
@@ -21,6 +22,7 @@ module NonTermination =
             graph.Outgoing[location]
             |> Array.filter (fun edge -> ExpressionAnalysis.isUnconditionalTotalRule edge.Rule)
 
+        // predecessorを最初の到達辺だけに固定することで、発見した自己ループへのstemを後で復元できる。
         while queue.Count > 0 do
             let location = queue.Dequeue()
             for edge in safeEdges location do
@@ -42,6 +44,7 @@ module NonTermination =
             let stem = ResizeArray<Edge>()
             let mutable location = loopEdge.Source
             while location <> graph.Start do
+                // BFSで保存した先行辺を判定し、自己ループから開始位置までstemを逆向きに復元する。
                 match predecessor[location] with
                 | Some edge ->
                     stem.Add edge

@@ -8,6 +8,8 @@ type SccAnalysis = {
 }
 
 module Scc =
+    /// 開始位置から到達可能な部分グラフだけをTarjan法でSCC分解する。
+    /// 未到達位置のComponentOfは-1のまま残し、停止性判定へ混入させない。
     let analyseFromStart (graph: ControlFlowGraph) =
         let count = graph.Names.Length
         let indices = Array.create count -1
@@ -32,6 +34,7 @@ module Scc =
                 elif onStack[target] then
                     lowLinks[location] <- min lowLinks[location] indices[target]
 
+            // low-linkが自分の訪問番号に戻った位置が、現在のSCCの根になる。
             if lowLinks[location] = indices[location] then
                 let sccMembers = ResizeArray<LocationId>()
                 let mutable finished = false

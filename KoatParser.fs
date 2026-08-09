@@ -34,6 +34,7 @@ module KoatParser =
 
         let arities = Dictionary<string, int>()
         let checkTerm (rule: Rule) term =
+            // 関数記号の初出時に引数数を記録し、以降の出現が同じarityか検査する。
             match arities.TryGetValue term.Symbol with
             | true, arity when arity <> term.Arguments.Length ->
                 failAt rule.Span.Start (sprintf "関数記号%sの引数数が一致しません。" term.Symbol)
@@ -46,6 +47,7 @@ module KoatParser =
                 checkTerm rule rule.Source
                 @ checkTerm rule rule.Target
                 @ (rule.Guard |> Option.map (variablesInBool >> Set.toList) |> Option.defaultValue [])
+            // 規則内で使われる変数のうち、VAR宣言にない最初の名前を報告する。
             match used |> List.tryFind (declared.Contains >> not) with
             | Some name -> failAt rule.Span.Start (sprintf "未宣言の変数です: %s" name)
             | None -> ()

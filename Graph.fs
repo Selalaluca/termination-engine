@@ -22,6 +22,7 @@ module Graph =
         let names = ResizeArray<string>()
 
         let locationId name =
+            // 関数記号が既知なら既存IDを再利用し、初出なら連番の制御位置を割り当てる。
             match ids.TryGetValue name with
             | true, id -> id
             | false, _ ->

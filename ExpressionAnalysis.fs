@@ -1,7 +1,8 @@
 namespace TerminationEngine
 
 module ExpressionAnalysis =
-    /// True when evaluation is defined for every integer valuation.
+    /// 任意の整数割当てで式が定義されるかを保守的に判定する。
+    /// 除算・剰余は除数が0でないと局所的に分かる場合でも、現在は全域とはみなさない。
     let rec isTotal = function
         | Integer _
         | Variable _ -> true

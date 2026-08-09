@@ -114,9 +114,13 @@ loop(x) -> loop(x + 1) [x < 0]  # rho = -x
   -> KoatParser.fs（意味検査）
   -> Graph.fs（制御フローグラフ）
   -> Scc.fs（開始位置からTarjan法）
+  -> Components.fs（循環SCCと入出辺の構築）
   -> ExpressionAnalysis.fs（式と規則の全域性検査）
   -> NonTermination.fs（自明な非停止証明）
-  -> Ranking.fs（射影ランキング関数の探索と検査）
+  -> LinearArithmetic.fs（アフィン整数式への安全な変換）
+  -> RankingVerification.fs（ランキング証明書の検査）
+  -> RankingSynthesis.fs（射影ランキング関数の探索）
+  -> Ranking.fs（ランキング解析の公開窓口）
   -> Analysis.fs（循環SCCの分類と判定の統合）
   -> Report.fs（YES、NO、MAYBE）
 ```
@@ -157,9 +161,14 @@ termination-engine/
   KoatParser.fs                パーサーFacadeと意味検査
   Graph.fs                     制御フローグラフ構築
   Scc.fs                       開始位置からのTarjan SCC分解
+  Components.fs                循環SCCと入出辺の構築
   ExpressionAnalysis.fs        式と規則の共通解析
   NonTermination.fs            自明な非停止証明
-  Ranking.fs                   射影ランキング関数の探索と検査
+  LinearArithmetic.fs          bigintによるアフィン整数式の表現と変換
+  RankingCertificate.fs        ランキング証明書の型
+  RankingVerification.fs       ランキング証明書の検査
+  RankingSynthesis.fs          射影ランキング関数の探索
+  Ranking.fs                   ランキング解析の公開窓口
   Analysis.fs                  循環SCCの分類と判定の統合
   Report.fs                    判定結果の表示
   Program.fs                   CLI
