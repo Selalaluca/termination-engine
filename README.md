@@ -43,9 +43,11 @@ MAYBE  どちらも証明できなかった
 
 ```text
 YES
-cyclic SCC: loop
-ranking: rho(x) = 9 - x [argumentIndex=0, sign=-1, offset=9]
+cyclic SCCs: (loop)
+(loop) ranking: rho(x) = 9 - x [argumentIndex=0, sign=-1, offset=9]
 ```
+
+`NO`と`MAYBE`でも、到達可能な循環SCCを同じ括弧形式で表示する。
 
 構文・意味エラーはファイル名、行、列とともに標準エラーへ出力する。
 
