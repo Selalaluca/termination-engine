@@ -7,9 +7,9 @@ module RankingVerification =
             | value -> value :: result
         collect [] expression
 
-    /// 1個の比較が sign * variable >= 0 を含意するか調べる。
-    /// Gt/Ltでは変数が整数であることを使い、厳密境界を1だけずらして判定する。
-    let private atomEstablishesNonNegative variable sign = function
+    /// 1個の比較から sign * variable の下限を取り出す。
+    /// Gt/Ltでは変数が整数であることを使い、厳密境界を1だけずらす。
+    let private atomLowerBound variable sign = function
         | Compare (comparison, left, right) ->
             // 比較の両辺を線形式へ変換できるか判定し、left-rightの係数と定数を調べる。
             match LinearArithmetic.tryFromExpression left, LinearArithmetic.tryFromExpression right with
@@ -18,29 +18,31 @@ module RankingVerification =
                 // 差が対象変数1個だけなら、その係数の向きから下限を導ける比較か判定する。
                 match Map.toList difference.Coefficients with
                 | [ name, coefficient ] when name = variable && coefficient = sign ->
-                    // sign*x+cと0の比較がsign*x>=0を含意する境界か判定する。
                     match comparison with
-                    | Ge -> difference.Constant <= 0I
-                    | Gt -> difference.Constant <= 1I
-                    | Eq -> difference.Constant = 0I
-                    | _ -> false
+                    | Ge -> Some(-difference.Constant)
+                    | Gt -> Some(1I - difference.Constant)
+                    | Eq -> Some(-difference.Constant)
+                    | _ -> None
                 | [ name, coefficient ] when name = variable && coefficient = -sign ->
                     // 係数が逆向きの場合は、上限制約をsign*xの下限制約として読み替える。
                     match comparison with
-                    | Le -> difference.Constant >= 0I
-                    | Lt -> difference.Constant >= -1I
-                    | Eq -> difference.Constant = 0I
-                    | _ -> false
-                | _ -> false
-            | _ -> false
-        | _ -> false
+                    | Le -> Some difference.Constant
+                    | Lt -> Some(difference.Constant + 1I)
+                    | Eq -> Some difference.Constant
+                    | _ -> None
+                | _ -> None
+            | _ -> None
+        | _ -> None
 
-    let private guardEstablishesNonNegative variable sign = function
-        | None -> false
+    let tryGuardLowerBound variable sign = function
+        | None -> None
         | Some guard ->
             guard
             |> conjuncts
-            |> List.exists (atomEstablishesNonNegative variable sign)
+            |> List.choose (atomLowerBound variable sign)
+            |> function
+                | [] -> None
+                | bounds -> Some(List.max bounds)
 
     let verifyProjectionRule candidate (edge: Edge) =
         let rule = edge.Rule
@@ -58,8 +60,10 @@ module RankingVerification =
                     let decreases =
                         change.Coefficients.IsEmpty
                         && candidate.Sign * change.Constant <= -1I
-                    decreases
-                    && guardEstablishesNonNegative sourceVariable candidate.Sign rule.Guard
+                    let nonNegative =
+                        tryGuardLowerBound sourceVariable candidate.Sign rule.Guard
+                        |> Option.exists (fun lowerBound -> lowerBound + candidate.Offset >= 0I)
+                    decreases && nonNegative
                 | None -> false
             | _ -> false
 
