@@ -22,10 +22,13 @@ module RankingSynthesis =
         match Array.tryHead internalEdges with
         | None -> None
         | Some first ->
+            let arity = first.Rule.Source.Arguments.Length
             [ for index in 0 .. first.Rule.Source.Arguments.Length - 1 do
                   for sign in [ 1I; -1I ] do
                       match tryRequiredOffset index sign internalEdges with
                       | Some offset ->
-                          yield { ArgumentIndex = index; Sign = sign; Offset = offset }
+                          let coefficients = Array.zeroCreate arity
+                          coefficients[index] <- sign
+                          yield { Constant = offset; Coefficients = coefficients }
                       | None -> () ]
             |> List.tryFind (RankingVerification.verifyProjection internalEdges)

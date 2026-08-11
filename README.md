@@ -44,7 +44,7 @@ MAYBE  どちらも証明できなかった
 ```text
 YES
 cyclic SCCs: (loop)
-(loop) ranking: rho(x) = 9 - x [argumentIndex=0, sign=-1, offset=9]
+(loop) ranking: rho(x) = -x + 9 [constant=9, coefficients=[-1]]
 ```
 
 `NO`と`MAYBE`でも、到達可能な循環SCCを同じ括弧形式で表示する。

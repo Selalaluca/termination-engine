@@ -1,6 +1,14 @@
 namespace TerminationEngine
 
 module RankingVerification =
+    let private tryProjectionShape (candidate: LinearRanking) =
+        candidate.Coefficients
+        |> Array.indexed
+        |> Array.filter (fun (_, coefficient) -> coefficient <> 0I)
+        |> function
+            | [| index, sign |] when sign = 1I || sign = -1I -> Some(index, sign)
+            | _ -> None
+
     let private conjuncts expression =
         let rec collect result = function
             | And (left, right) -> collect (collect result left) right
@@ -46,26 +54,28 @@ module RankingVerification =
 
     let verifyProjectionRule candidate (edge: Edge) =
         let rule = edge.Rule
-        if candidate.ArgumentIndex >= rule.Source.Arguments.Length
-           || candidate.ArgumentIndex >= rule.Target.Arguments.Length then false
-        else
+        match tryProjectionShape candidate with
+        | Some(argumentIndex, sign)
+            when argumentIndex < rule.Source.Arguments.Length
+                 && argumentIndex < rule.Target.Arguments.Length ->
             // 対象引数がSourceでは単純変数、Targetではアフィン式として扱えるか判定する。
-            match rule.Source.Arguments[candidate.ArgumentIndex] with
+            match rule.Source.Arguments[argumentIndex] with
             | Variable sourceVariable ->
                 // 更新前後の差が定数になり、候補の符号方向へ1以上減るか検査する。
-                match LinearArithmetic.tryFromExpression rule.Target.Arguments[candidate.ArgumentIndex] with
+                match LinearArithmetic.tryFromExpression rule.Target.Arguments[argumentIndex] with
                 | Some target ->
                     let source = LinearArithmetic.variable sourceVariable
                     let change = LinearArithmetic.subtract target source
                     let decreases =
                         change.Coefficients.IsEmpty
-                        && candidate.Sign * change.Constant <= -1I
+                        && sign * change.Constant <= -1I
                     let nonNegative =
-                        tryGuardLowerBound sourceVariable candidate.Sign rule.Guard
-                        |> Option.exists (fun lowerBound -> lowerBound + candidate.Offset >= 0I)
+                        tryGuardLowerBound sourceVariable sign rule.Guard
+                        |> Option.exists (fun lowerBound -> lowerBound + candidate.Constant >= 0I)
                     decreases && nonNegative
                 | None -> false
             | _ -> false
+        | _ -> false
 
     let verifyProjection (internalEdges: Edge array) candidate =
         internalEdges |> Array.forall (verifyProjectionRule candidate)
