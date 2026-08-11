@@ -3,6 +3,7 @@
   <ItemGroup>
     <PackageReference Include="FsLexYacc" Version="11.4.0" PrivateAssets="all" />
     <PackageReference Include="FsLexYacc.Runtime" Version="11.4.0" />
+    <PackageReference Include="Microsoft.Z3" Version="4.12.2" />
   </ItemGroup>
   <PropertyGroup>
     <GeneratedParserDir>$(BaseIntermediateOutputPath)Generated\</GeneratedParserDir>
@@ -25,6 +26,9 @@
     <Compile Include="NonTermination.fs" />
     <Compile Include="RankingCertificate.fs" />
     <Compile Include="LinearArithmetic.fs" />
+    <Compile Include="Smt.fs" />
+    <Compile Include="Z3Encoding.fs" />
+    <Compile Include="Z3Backend.fs" />
     <Compile Include="RankingVerification.fs" />
     <Compile Include="RankingSynthesis.fs" />
     <Compile Include="Ranking.fs" />

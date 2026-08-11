@@ -3,6 +3,10 @@ namespace TerminationEngine
 module RankingSynthesis =
     let private coefficientDomain = [| -1I; 0I; 1I |]
     let private maximumRankingArity = 6
+    let private z3TimeoutMilliseconds = 1000
+
+    let private verifyStrictCandidate internalEdges candidate =
+        Z3Backend.verifyStrictRanking z3TimeoutMilliseconds internalEdges candidate = Valid
 
     let rec private enumerateCoefficientVectors arity =
         if arity = 0 then
@@ -113,7 +117,9 @@ module RankingSynthesis =
                           coefficients[index] <- sign
                           yield ({ Constant = offset; Coefficients = coefficients }: LinearRanking)
                       | None -> () ]
-            |> List.tryFind (RankingVerification.verifyProjection internalEdges)
+            |> List.tryFind (fun candidate ->
+                RankingVerification.verifyProjection internalEdges candidate
+                && Z3Backend.verifyStrictRanking z3TimeoutMilliseconds internalEdges candidate = Valid)
 
     /// 小さい係数ベクトルを順に具体化し、非負性の定数項と全辺での減少性を満たす候補を探す。
     let tryFindGeneralLinear (internalEdges: Edge array) =
@@ -129,7 +135,7 @@ module RankingSynthesis =
                     let candidate: LinearRanking =
                         { Constant = constant
                           Coefficients = Array.copy coefficients }
-                    if RankingVerification.verifyLinearDecrease internalEdges candidate then
+                    if verifyStrictCandidate internalEdges candidate then
                         Some candidate
                     else None)
 

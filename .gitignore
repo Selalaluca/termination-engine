@@ -18,5 +18,8 @@
 !/RankingVerification.fs
 !/Report.fs
 !/Scc.fs
+!/Smt.fs
 !/Syntax.fs
+!/Z3Backend.fs
+!/Z3Encoding.fs
 !/TerminationEngine.fsproj
