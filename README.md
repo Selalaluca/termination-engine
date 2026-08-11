@@ -39,6 +39,14 @@ NO     非停止を証明した
 MAYBE  どちらも証明できなかった
 ```
 
+ランキング関数で`YES`を証明した場合は、循環SCCと採用した証明書も表示する。
+
+```text
+YES
+cyclic SCC: loop
+ranking: rho(x) = 9 - x [argumentIndex=0, sign=-1, offset=9]
+```
+
 構文・意味エラーはファイル名、行、列とともに標準エラーへ出力する。
 
 ```text

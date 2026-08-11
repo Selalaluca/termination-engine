@@ -1,7 +1,7 @@
 namespace TerminationEngine
 
 type TerminationResult =
-    | Yes
+    | Yes of RankingProof array
     | No of NonTerminationWitness
     | Maybe of CyclicComponent array
 
@@ -13,15 +13,21 @@ module Analysis =
         let scc = Scc.analyseFromStart graph
         let cyclic = Components.findCyclic graph scc
         let result =
-            if cyclic.Length = 0 then Yes
+            if cyclic.Length = 0 then Yes [||]
             else
                 // まず具体的な非停止証拠の有無を判定し、なければ各SCCのランキング証明へ進む。
                 match NonTermination.tryProveObvious graph with
                 | Some witness -> No witness
                 | None ->
-                    if cyclic |> Array.forall (fun cyclicComponent ->
-                        cyclicComponent.InternalEdges
-                        |> Ranking.tryFindProjection
-                        |> Option.isSome) then Yes
+                    let proofs =
+                        cyclic
+                        |> Array.map (fun cyclicComponent ->
+                            cyclicComponent.InternalEdges
+                            |> Ranking.tryFindProjection
+                            |> Option.map (fun ranking ->
+                                { Component = cyclicComponent
+                                  Ranking = ranking }))
+                    if proofs |> Array.forall Option.isSome then
+                        proofs |> Array.choose id |> Yes
                     else Maybe cyclic
         graph, scc, result

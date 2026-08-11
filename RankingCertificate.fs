@@ -6,3 +6,9 @@ type ProjectionRanking = {
     Sign: bigint
     Offset: bigint
 }
+
+/// どの循環成分を、どのランキング関数で証明したかを保持する。
+type RankingProof = {
+    Component: CyclicComponent
+    Ranking: ProjectionRanking
+}
