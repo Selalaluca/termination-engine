@@ -102,8 +102,33 @@ module RankingSynthesis =
                         Some candidate
                     else None)
 
+    /// 全辺非増加かつWeak辺だけでは循環できない一般線形候補を探す。
+    /// 非負性の定数項を全内部辺のガードから合成できる候補だけを対象にする。
+    let tryFindTransitionRemoval (internalEdges: Edge array) =
+        match Array.tryHead internalEdges with
+        | None -> None
+        | Some first ->
+            first.Rule.Source.Arguments.Length
+            |> generateCoefficientVectors
+            |> Seq.tryPick (fun coefficients ->
+                match tryRequiredConstant coefficients internalEdges with
+                | None -> None
+                | Some constant ->
+                    let candidate: LinearRanking =
+                        { Constant = constant
+                          Coefficients = Array.copy coefficients }
+                    RankingVerification.verifyTransitionRemoval internalEdges candidate
+                    |> Option.map (fun (strictEdges, weakEdges) -> candidate, strictEdges, weakEdges))
+
+    let tryFindWithEvidence internalEdges =
+        match tryFindProjection internalEdges with
+        | Some ranking -> Some(ranking, internalEdges, [||])
+        | None ->
+            match tryFindGeneralLinear internalEdges with
+            | Some ranking -> Some(ranking, internalEdges, [||])
+            | None -> tryFindTransitionRemoval internalEdges
+
     /// 高速なアフィン射影を先に試し、失敗した場合だけ一般線形候補を探索する。
     let tryFind internalEdges =
-        match tryFindProjection internalEdges with
-        | Some ranking -> Some ranking
-        | None -> tryFindGeneralLinear internalEdges
+        tryFindWithEvidence internalEdges
+        |> Option.map (fun (ranking, _, _) -> ranking)

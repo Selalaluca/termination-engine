@@ -50,14 +50,25 @@ module Report =
             ranking.Constant
             (ranking.Coefficients |> Array.map string |> String.concat ", ")
 
+    let private renderEdges graph edges =
+        edges
+        |> Array.map (fun edge -> sprintf "%s -> %s" graph.Names[edge.Source] graph.Names[edge.Target])
+        |> String.concat ", "
+
     let render (graph: ControlFlowGraph) result =
         // 最終判定を分類し、NOには証拠位置、MAYBEには未解決の循環位置を付加する。
         match result with
         | Yes proofs ->
             let rankings =
                 proofs
-                |> Array.map (fun proof ->
-                    sprintf "%s %s" (renderComponent graph proof.Component) (renderRanking proof))
+                |> Array.collect (fun proof ->
+                    let ranking = sprintf "%s %s" (renderComponent graph proof.Component) (renderRanking proof)
+                    if Array.isEmpty proof.WeakEdges then [| ranking |]
+                    else
+                        [| ranking
+                           sprintf "  strict edges: %s" (renderEdges graph proof.StrictEdges)
+                           sprintf "  weak edges: %s" (renderEdges graph proof.WeakEdges)
+                           "  weak-only graph: acyclic" |])
             let details =
                 if Array.isEmpty proofs then [||]
                 else

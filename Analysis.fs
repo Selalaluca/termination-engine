@@ -23,10 +23,12 @@ module Analysis =
                         cyclic
                         |> Array.map (fun cyclicComponent ->
                             cyclicComponent.InternalEdges
-                            |> Ranking.tryFind
-                            |> Option.map (fun ranking ->
+                            |> Ranking.tryFindWithEvidence
+                            |> Option.map (fun (ranking, strictEdges, weakEdges) ->
                                 { Component = cyclicComponent
-                                  Ranking = ranking }))
+                                  Ranking = ranking
+                                  StrictEdges = strictEdges
+                                  WeakEdges = weakEdges }))
                     if proofs |> Array.forall Option.isSome then
                         proofs |> Array.choose id |> Yes
                     else Maybe cyclic

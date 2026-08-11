@@ -10,4 +10,6 @@ type LinearRanking = {
 type RankingProof = {
     Component: CyclicComponent
     Ranking: LinearRanking
+    StrictEdges: Edge array
+    WeakEdges: Edge array
 }

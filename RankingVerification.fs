@@ -1,5 +1,12 @@
 namespace TerminationEngine
 
+open System.Collections.Generic
+
+type EdgeDecrease =
+    | Strict
+    | Weak
+    | Invalid
+
 module RankingVerification =
     let private tryProjectionShape (candidate: LinearRanking) =
         candidate.Coefficients
@@ -130,3 +137,55 @@ module RankingVerification =
     let verifyLinearDecrease (internalEdges: Edge array) candidate =
         internalEdges
         |> Array.forall (verifyLinearDecreaseRule candidate)
+
+    let classifyLinearDecreaseRule (candidate: LinearRanking) (edge: Edge) =
+        match
+            LinearArithmetic.tryInstantiate candidate edge.Rule.Source.Arguments,
+            LinearArithmetic.tryInstantiate candidate edge.Rule.Target.Arguments
+        with
+        | Some before, Some after ->
+            let decrease = LinearArithmetic.subtract before after
+            if not decrease.Coefficients.IsEmpty then Invalid
+            elif decrease.Constant >= 1I then Strict
+            elif decrease.Constant >= 0I then Weak
+            else Invalid
+        | _ -> Invalid
+
+    let private isAcyclic (edges: Edge array) =
+        let outgoing = Dictionary<LocationId, ResizeArray<LocationId>>()
+        for edge in edges do
+            match outgoing.TryGetValue edge.Source with
+            | true, targets -> targets.Add edge.Target
+            | false, _ ->
+                let targets = ResizeArray<LocationId>()
+                targets.Add edge.Target
+                outgoing.Add(edge.Source, targets)
+        let colors = Dictionary<LocationId, int>()
+        let rec visit location =
+            match colors.TryGetValue location with
+            | true, 1 -> false
+            | true, 2 -> true
+            | _ ->
+                colors[location] <- 1
+                let childrenAreAcyclic =
+                    match outgoing.TryGetValue location with
+                    | true, targets -> targets |> Seq.forall visit
+                    | false, _ -> true
+                if childrenAreAcyclic then colors[location] <- 2
+                childrenAreAcyclic
+        edges
+        |> Array.collect (fun edge -> [| edge.Source; edge.Target |])
+        |> Array.distinct
+        |> Array.forall visit
+
+    /// 全辺が非増加で、Strict辺を除いたWeak辺だけのグラフが非循環か検査する。
+    let verifyTransitionRemoval (internalEdges: Edge array) candidate =
+        let classified =
+            internalEdges
+            |> Array.map (fun edge -> edge, classifyLinearDecreaseRule candidate edge)
+        if classified |> Array.exists (snd >> (=) Invalid) then None
+        else
+            let strictEdges = classified |> Array.choose (fun (edge, kind) -> if kind = Strict then Some edge else None)
+            let weakEdges = classified |> Array.choose (fun (edge, kind) -> if kind = Weak then Some edge else None)
+            if Array.isEmpty strictEdges || not (isAcyclic weakEdges) then None
+            else Some(strictEdges, weakEdges)
