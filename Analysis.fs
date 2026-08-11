@@ -23,7 +23,7 @@ module Analysis =
                         cyclic
                         |> Array.map (fun cyclicComponent ->
                             cyclicComponent.InternalEdges
-                            |> Ranking.tryFindProjection
+                            |> Ranking.tryFind
                             |> Option.map (fun ranking ->
                                 { Component = cyclicComponent
                                   Ranking = ranking }))

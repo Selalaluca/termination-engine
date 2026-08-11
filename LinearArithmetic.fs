@@ -44,3 +44,20 @@ module LinearArithmetic =
         | Multiply _
         | Divide _
         | Mod _ -> None
+
+    /// ランキング係数を制御位置の引数へ代入し、具体的なアフィン式を構築する。
+    /// 係数0の引数はランキング値へ影響しないため、非線形式でも参照せず捨てる。
+    let tryInstantiate (ranking: LinearRanking) (arguments: IntExpr list) =
+        if ranking.Coefficients.Length <> arguments.Length then
+            None
+        else
+            Array.zip ranking.Coefficients (List.toArray arguments)
+            |> Array.fold (fun result (coefficient, argument) ->
+                match result with
+                | None -> None
+                | Some accumulated when coefficient = 0I -> Some accumulated
+                | Some accumulated ->
+                    argument
+                    |> tryFromExpression
+                    |> Option.map (scale coefficient >> add accumulated))
+                (Some { zero with Constant = ranking.Constant })

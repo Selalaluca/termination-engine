@@ -52,6 +52,41 @@ module RankingVerification =
                 | [] -> None
                 | bounds -> Some(List.max bounds)
 
+    /// 1個の比較から、指定した一般線形式の下限を取り出す。
+    /// 比較式と対象式の係数が同じか符号反転で一致する場合だけ、定数項を移項して扱う。
+    let private atomLinearLowerBound (target: LinearForm) = function
+        | Compare (comparison, left, right) ->
+            match LinearArithmetic.tryFromExpression left, LinearArithmetic.tryFromExpression right with
+            | Some leftForm, Some rightForm ->
+                let difference = LinearArithmetic.subtract leftForm rightForm
+                if difference.Coefficients = target.Coefficients then
+                    let constantDelta = difference.Constant - target.Constant
+                    match comparison with
+                    | Ge -> Some(-constantDelta)
+                    | Gt -> Some(1I - constantDelta)
+                    | Eq -> Some(-constantDelta)
+                    | _ -> None
+                elif difference.Coefficients = (target.Coefficients |> Map.map (fun _ value -> -value)) then
+                    let constantDelta = difference.Constant + target.Constant
+                    match comparison with
+                    | Le -> Some constantDelta
+                    | Lt -> Some(constantDelta + 1I)
+                    | Eq -> Some constantDelta
+                    | _ -> None
+                else None
+            | _ -> None
+        | _ -> None
+
+    let tryLinearGuardLowerBound target = function
+        | None -> None
+        | Some guard ->
+            guard
+            |> conjuncts
+            |> List.choose (atomLinearLowerBound target)
+            |> function
+                | [] -> None
+                | bounds -> Some(List.max bounds)
+
     let verifyProjectionRule candidate (edge: Edge) =
         let rule = edge.Rule
         match tryProjectionShape candidate with
@@ -79,3 +114,19 @@ module RankingVerification =
 
     let verifyProjection (internalEdges: Edge array) candidate =
         internalEdges |> Array.forall (verifyProjectionRule candidate)
+
+    /// 一般線形ランキングを遷移前後の引数へ適用し、ランキング値が1以上減るか検査する。
+    /// 初期版では差が定数へ簡約できる場合だけ受理し、状態変数が残る条件付き減少は近似しない。
+    let verifyLinearDecreaseRule (candidate: LinearRanking) (edge: Edge) =
+        match
+            LinearArithmetic.tryInstantiate candidate edge.Rule.Source.Arguments,
+            LinearArithmetic.tryInstantiate candidate edge.Rule.Target.Arguments
+        with
+        | Some before, Some after ->
+            let decrease = LinearArithmetic.subtract before after
+            decrease.Coefficients.IsEmpty && decrease.Constant >= 1I
+        | _ -> false
+
+    let verifyLinearDecrease (internalEdges: Edge array) candidate =
+        internalEdges
+        |> Array.forall (verifyLinearDecreaseRule candidate)
