@@ -66,6 +66,37 @@ module RankingSynthesis =
             | Some current, Some lowerBound -> Some(max current (max 0I (-lowerBound)))
             | _ -> None) (Some 0I)
 
+    /// Strict辺の直後にSCC内で実行を継続する辺のガードから、ランキング値の下限を得る。
+    /// 無限実行ではStrict辺の後に必ず内部辺を選ぶため、全ての直後内部辺が下限を与える場合は
+    /// その最弱下限をStrict辺の実行前にも利用できる。複数段のWeak経路は初期版では扱わない。
+    let tryRequiredCycleConstant
+        (coefficients: bigint array)
+        (strictEdges: Edge array)
+        (internalEdges: Edge array) =
+        let coefficientOnlyRanking: LinearRanking =
+            { Constant = 0I
+              Coefficients = Array.copy coefficients }
+        strictEdges
+        |> Array.map (fun strictEdge ->
+            let continuationEdges =
+                internalEdges
+                |> Array.filter (fun edge -> edge.Source = strictEdge.Target)
+            if Array.isEmpty continuationEdges then None
+            else
+                let bounds =
+                    continuationEdges
+                    |> Array.map (fun continuation ->
+                    continuation.Rule.Source.Arguments
+                    |> LinearArithmetic.tryInstantiate coefficientOnlyRanking
+                    |> Option.bind (fun sourceForm ->
+                        RankingVerification.tryLinearGuardLowerBound sourceForm continuation.Rule.Guard))
+                if bounds |> Array.exists Option.isNone then None
+                else bounds |> Array.choose id |> Array.min |> Some)
+        |> Array.fold (fun result bound ->
+            match result, bound with
+            | Some current, Some lowerBound -> Some(max current (max 0I (-lowerBound)))
+            | _ -> None) (Some 0I)
+
     /// 全内部辺で非負かつ厳密減少するxi+cまたは-xi+cを探す。
     /// 発見失敗は非停止の証拠ではなく、現在の候補集合では証明できないことだけを意味する。
     let tryFindProjection (internalEdges: Edge array) =
@@ -111,14 +142,22 @@ module RankingSynthesis =
             first.Rule.Source.Arguments.Length
             |> generateCoefficientVectors
             |> Seq.tryPick (fun coefficients ->
-                match tryRequiredConstant coefficients internalEdges with
+                let coefficientOnlyCandidate: LinearRanking =
+                    { Constant = 0I
+                      Coefficients = Array.copy coefficients }
+                match RankingVerification.verifyTransitionRemoval internalEdges coefficientOnlyCandidate with
                 | None -> None
-                | Some constant ->
-                    let candidate: LinearRanking =
-                        { Constant = constant
-                          Coefficients = Array.copy coefficients }
-                    RankingVerification.verifyTransitionRemoval internalEdges candidate
-                    |> Option.map (fun (strictEdges, weakEdges) -> candidate, strictEdges, weakEdges))
+                | Some(strictEdges, weakEdges) ->
+                    let requiredConstant =
+                        match tryRequiredConstant coefficients internalEdges with
+                        | Some constant -> Some constant
+                        | None -> tryRequiredCycleConstant coefficients strictEdges internalEdges
+                    requiredConstant
+                    |> Option.map (fun constant ->
+                        let candidate: LinearRanking =
+                            { Constant = constant
+                              Coefficients = Array.copy coefficients }
+                        candidate, strictEdges, weakEdges))
 
     let tryFindWithEvidence internalEdges =
         match tryFindProjection internalEdges with
