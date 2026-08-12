@@ -1,4 +1,4 @@
-# Halting Analyzer
+# termination-engine
 
 KoAT形式の整数遷移系を読み込み、停止性を解析するためのF#プロジェクト。
 
@@ -25,6 +25,25 @@ KoatGrammar.fsy -> obj/Generated/KoatGrammar.fs
 ```
 
 生成された`.fs`は編集しない。字句や文法を変更する場合は`.fsl`または`.fsy`を編集する。
+
+## テスト
+
+```powershell
+dotnet run --project tests/TerminationEngine.Tests.fsproj
+```
+
+KoATで表現できる入力はF#コードへ埋め込まず、次のfixtureフォルダーから読み込む。
+
+```text
+tests/fixtures/
+  parser/    正常な構文と演算子優先順位
+  invalid/   構文エラーと意味エラー
+  analysis/  SCC、ランキング、SMT、非停止解析
+  cases/     test1.koat ～ test16.koatの総合判定
+  termination/ 2重・3重ループ、末尾再帰、相互再帰
+```
+
+F#側には期待する構文木、証明情報、または`YES`／`NO`／`MAYBE`だけを記述する。
 
 ## 使い方
 

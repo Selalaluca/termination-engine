@@ -1,0 +1,11 @@
+# Mutually recursive calls with one mandatory decrease per cycle.
+(GOAL TERMINATION)
+(STARTTERM (FUNCTIONSYMBOLS first))
+(VAR x)
+(RULES
+  first(x) -> second(x) [x > 0]
+  first(x) -> done(x) [x <= 0]
+  second(x) -> first(x - 1) [x > 0]
+  second(x) -> done(x) [x <= 0]
+)
+

@@ -1,0 +1,7 @@
+(GOAL TERMINATION)
+(STARTTERM (FUNCTIONSYMBOLS f))
+(VAR x y)
+(RULES
+  f(x,y) -> f(x + y / 2 % 3,x * y / 4)
+)
+

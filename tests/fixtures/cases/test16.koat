@@ -1,0 +1,13 @@
+(GOAL COMPLEXITY)
+(STARTTERM (FUNCTIONSYMBOLS eval))
+(VAR x y)
+(RULES
+  eval(x) -> loop1(x)
+  loop1(x) -> loop1(x - 1) [x > -10]
+  loop1(x) -> bypath1(x) [x <= -10]
+  bypath1(x) -> loop2_1(x, y)
+  loop2_1(x, y) -> loop2_2(x - 1, y - 1)
+  loop2_2(x, y) -> loop2_1(x, y) [y > 10]
+  loop2_2(x, y) -> bypath2(x) [y <= 10]
+  bypath2(x) -> end(x)
+)

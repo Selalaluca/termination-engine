@@ -1,0 +1,9 @@
+(GOAL TERMINATION)
+(STARTTERM (FUNCTIONSYMBOLS start))
+(VAR x)
+(RULES
+  start(x) -> loop(x)
+  loop(x) -> loop(x - 1) [x > 0]
+  loop(x) -> done(x) [x <= 0]
+)
+

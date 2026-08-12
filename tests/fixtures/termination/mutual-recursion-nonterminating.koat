@@ -1,0 +1,9 @@
+# Mutually recursive calls without a state change.
+(GOAL TERMINATION)
+(STARTTERM (FUNCTIONSYMBOLS first))
+(VAR x)
+(RULES
+  first(x) -> second(x)
+  second(x) -> first(x)
+)
+

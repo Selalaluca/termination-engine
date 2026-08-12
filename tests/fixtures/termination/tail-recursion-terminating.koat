@@ -1,0 +1,9 @@
+# Tail-recursive countdown after conversion to KoAT.
+(GOAL TERMINATION)
+(STARTTERM (FUNCTIONSYMBOLS recurse))
+(VAR x)
+(RULES
+  recurse(x) -> recurse(x - 1) [x > 0]
+  recurse(x) -> done(x) [x <= 0]
+)
+

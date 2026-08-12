@@ -1,0 +1,9 @@
+(GOAL COMPLEXITY)
+(STARTTERM (FUNCTIONSYMBOLS eval))
+(VAR x)
+(RULES
+  eval(x) -> a(x)
+  a(x) -> b(x) [x > 0]
+  b(x) -> a(x - 1) [x > 0]
+  a(x) -> done(x) [x <= 0]
+)

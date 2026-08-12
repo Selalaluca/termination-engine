@@ -1,0 +1,8 @@
+(GOAL TERMINATION)
+(STARTTERM (FUNCTIONSYMBOLS eval))
+(VAR x y)
+(RULES
+  eval(x,y) -> loop(x,y)
+  loop(x,y) -> loop(x - 1,y) [x > 0]
+)
+

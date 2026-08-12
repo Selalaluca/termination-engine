@@ -1,0 +1,8 @@
+(GOAL COMPLEXITY)
+(STARTTERM (FUNCTIONSYMBOLS eval))
+(VAR x y)
+(RULES
+  eval(x,y) -> loop(x,y)
+  loop(x,y) -> loop(x + 5,y - 1) [y > 0]
+  loop(x,y) -> done(x,y) [y <= 0]
+)

@@ -1,0 +1,8 @@
+# An unconditional tail-recursive call.
+(GOAL TERMINATION)
+(STARTTERM (FUNCTIONSYMBOLS recurse))
+(VAR x)
+(RULES
+  recurse(x) -> recurse(x + 1)
+)
+

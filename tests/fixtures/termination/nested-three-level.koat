@@ -1,0 +1,14 @@
+# Three nested countdown loops.
+(GOAL TERMINATION)
+(STARTTERM (FUNCTIONSYMBOLS eval))
+(VAR i j k)
+(RULES
+  eval(i) -> outer(i,0,0)
+  outer(i,j,k) -> middle(i,i,0) [i > 0]
+  outer(i,j,k) -> done(i,j,k) [i <= 0]
+  middle(i,j,k) -> inner(i,j,j) [j > 0]
+  middle(i,j,k) -> outer(i - 1,j,k) [j <= 0]
+  inner(i,j,k) -> inner(i,j,k - 1) [k > 0]
+  inner(i,j,k) -> middle(i,j - 1,k) [k <= 0]
+)
+

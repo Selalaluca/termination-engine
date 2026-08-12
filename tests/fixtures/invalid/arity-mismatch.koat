@@ -1,0 +1,8 @@
+(GOAL TERMINATION)
+(STARTTERM (FUNCTIONSYMBOLS f))
+(VAR x)
+(RULES
+  f(x) -> g(x)
+  g(x) -> f(x,x)
+)
+

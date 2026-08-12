@@ -12,7 +12,6 @@
 !/NonTermination.fs
 !/Program.fs
 !/Ranking.fs
-!/Ranking.fs
 !/RankingCertificate.fs
 !/RankingSynthesis.fs
 !/RankingVerification.fs
@@ -23,3 +22,13 @@
 !/Z3Backend.fs
 !/Z3Encoding.fs
 !/TerminationEngine.fsproj
+
+!/.github/workflows/ci.yml
+!/tests
+!/tests/*
+!/tests/.**
+/tests/bin
+/tests/obj/
+
+!/.gitignore
+!/README.md

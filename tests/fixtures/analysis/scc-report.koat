@@ -1,0 +1,11 @@
+(GOAL TERMINATION)
+(STARTTERM (FUNCTIONSYMBOLS eval))
+(VAR x)
+(RULES
+  eval(x) -> a(x)
+  eval(x) -> c(x)
+  a(x) -> b(x) [x >= 0]
+  b(x) -> a(x) [x >= 0]
+  c(x) -> c(x + 1) [x >= 0]
+)
+
