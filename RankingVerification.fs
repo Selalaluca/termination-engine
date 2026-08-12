@@ -178,6 +178,30 @@ module RankingVerification =
         |> Array.distinct
         |> Array.forall visit
 
+    let cyclicEdges (edges: Edge array) =
+        let outgoing = Dictionary<LocationId, ResizeArray<LocationId>>()
+        for edge in edges do
+            match outgoing.TryGetValue edge.Source with
+            | true, targets -> targets.Add edge.Target
+            | false, _ ->
+                let targets = ResizeArray<LocationId>()
+                targets.Add edge.Target
+                outgoing.Add(edge.Source, targets)
+        let canReach source target =
+            let visited = HashSet<LocationId>()
+            let pending = Stack<LocationId>()
+            pending.Push source
+            let mutable found = false
+            while pending.Count > 0 && not found do
+                let location = pending.Pop()
+                if location = target then found <- true
+                elif visited.Add location then
+                    match outgoing.TryGetValue location with
+                    | true, targets -> targets |> Seq.iter pending.Push
+                    | false, _ -> ()
+            found
+        edges |> Array.filter (fun edge -> canReach edge.Target edge.Source)
+
     /// 全辺が非増加で、Strict辺を除いたWeak辺だけのグラフが非循環か検査する。
     let verifyTransitionRemoval (internalEdges: Edge array) candidate =
         let classified =

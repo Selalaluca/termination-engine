@@ -73,7 +73,9 @@ cyclic SCCs: (loop)
 (loop) ranking: rho(x) = -x + 9 [constant=9, coefficients=[-1]]
 ```
 
-`ranking method`には、最終的に成立して採用された探索方式として`projection`、`general-linear`、`z3-linear`、または`transition-removal`を表示する。不成立だった候補は表示しない。
+`ranking method`には、最終的に成立して採用された探索方式として`projection`、`general-linear`、`z3-linear`、`transition-removal`、または`lexicographic`を表示する。不成立だった候補は表示しない。
+
+単一ランキングで証明できない入れ子ループには、Strict辺を段階的に除去する辞書式ランキングを使用する。各段では残余の循環に属する辺だけを次段へ渡し、最大8段まで探索する。成立時は`ranking method: lexicographic`と各段の係数、Strict辺、Weak辺を`-i`で表示する。
 
 `-i`を指定した場合、`NO`と`MAYBE`でも到達可能な循環SCCを同じ括弧形式で表示する。
 

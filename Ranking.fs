@@ -6,3 +6,4 @@ module Ranking =
     let tryFindZ3Linear = RankingSynthesis.tryFindZ3Linear
     let tryFind = RankingSynthesis.tryFind
     let tryFindWithEvidence = RankingSynthesis.tryFindWithEvidence
+    let tryFindLexicographic = RankingSynthesis.tryFindLexicographic

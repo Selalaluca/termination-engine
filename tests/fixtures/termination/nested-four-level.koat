@@ -1,0 +1,15 @@
+# Four nested countdown loops. Requires four lexicographic removal levels.
+(GOAL TERMINATION)
+(STARTTERM (FUNCTIONSYMBOLS eval))
+(VAR i j k l)
+(RULES
+  eval(i) -> outer(i,0,0,0)
+  outer(i,j,k,l) -> second(i,i,0,0) [i > 0]
+  outer(i,j,k,l) -> done(i,j,k,l) [i <= 0]
+  second(i,j,k,l) -> third(i,j,j,0) [j > 0]
+  second(i,j,k,l) -> outer(i - 1,j,k,l) [j <= 0]
+  third(i,j,k,l) -> inner(i,j,k,k) [k > 0]
+  third(i,j,k,l) -> second(i,j - 1,k,l) [k <= 0]
+  inner(i,j,k,l) -> inner(i,j,k,l - 1) [l > 0]
+  inner(i,j,k,l) -> third(i,j,k - 1,l) [l <= 0]
+)

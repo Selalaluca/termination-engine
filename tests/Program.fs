@@ -323,6 +323,43 @@ let unitTests = [
         let system = parseTestFixture (Path.Combine("analysis", "weak-only-cycle.koat"))
         let _, _, result = Analysis.analyse system
         match result with Maybe _ -> () | _ -> failwith "weak-only cycle was unsafely accepted"
+    "lexicographic ranking proves nested loops", fun () ->
+        let system = parseTestFixture (Path.Combine("termination", "nested-two-level.koat"))
+        let graph, _, result = Analysis.analyse system
+        match result with
+        | Yes [| proof |] ->
+            require (proof.Method = Lexicographic) "nested loop did not use a lexicographic proof"
+            require (proof.Levels.Length = 2) "nested loop has the wrong lexicographic depth"
+            require (proof.Levels[0].Ranking.Coefficients = [| 1I; 0I |]) "outer ranking is not i"
+            require (proof.Levels[1].Ranking.Coefficients = [| 0I; 1I |]) "inner ranking is not j"
+            require ((Report.render graph result).Contains("ranking method: lexicographic")) "report omitted lexicographic evidence"
+        | _ -> failwith "nested loop was not proven by a lexicographic ranking"
+    "four-level lexicographic ranking", fun () ->
+        let system = parseTestFixture (Path.Combine("termination", "nested-four-level.koat"))
+        let _, _, result = Analysis.analyse system
+        match result with
+        | Yes [| proof |] ->
+            require (proof.Method = Lexicographic) "four-level loop did not use a lexicographic proof"
+            require (proof.Levels.Length = 4) "four-level loop has the wrong lexicographic depth"
+            let expected =
+                [| [| 1I; 0I; 0I; 0I |]
+                   [| 0I; 1I; 0I; 0I |]
+                   [| 0I; 0I; 1I; 0I |]
+                   [| 0I; 0I; 0I; 1I |] |]
+            require
+                (Array.map (fun (level: LexicographicLevel) -> level.Ranking.Coefficients) proof.Levels = expected)
+                "four-level ranking components are incorrect"
+        | _ -> failwith "four-level loop was not proven by a lexicographic ranking"
+    "lexicographic ranking with independent bounds", fun () ->
+        let system = parseTestFixture (Path.Combine("termination", "nested-independent-bounds.koat"))
+        let _, _, result = Analysis.analyse system
+        match result with
+        | Yes [| proof |] ->
+            require (proof.Method = Lexicographic) "independent-bound loop did not use a lexicographic proof"
+            require (proof.Levels.Length = 2) "independent-bound loop has the wrong lexicographic depth"
+            require (proof.Levels[0].Ranking.Coefficients = [| 0I; 0I; 1I; 0I |]) "outer counter i was not ranked first"
+            require (proof.Levels[1].Ranking.Coefficients = [| 0I; 0I; 0I; 1I |]) "inner counter j was not ranked second"
+        | _ -> failwith "independent-bound loop was not proven by a lexicographic ranking"
     "cycle-dependent lower bound proves decreasing y", fun () ->
         let system = parseTestFixture (Path.Combine("analysis", "cycle-dependent-lower-bound.koat"))
         let _, _, result = Analysis.analyse system
@@ -396,8 +433,10 @@ let fixtureTests =
             require (actual = expected) $"expected {expected}, but got {actual}")
 
 let terminationScenarioExpectations = [
-    "nested-two-level.koat", "MAYBE"
-    "nested-three-level.koat", "MAYBE"
+    "nested-two-level.koat", "YES"
+    "nested-three-level.koat", "YES"
+    "nested-four-level.koat", "YES"
+    "nested-independent-bounds.koat", "YES"
     "tail-recursion-terminating.koat", "YES"
     "tail-recursion-nonterminating.koat", "NO"
     "mutual-recursion-terminating.koat", "YES"

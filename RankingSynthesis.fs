@@ -248,6 +248,63 @@ module RankingSynthesis =
                               Coefficients = Array.copy coefficients }
                         candidate, strictEdges, weakEdges))
 
+    let private tryFindRemovalLevel (internalEdges: Edge array) =
+        match Array.tryHead internalEdges with
+        | None -> None
+        | Some first ->
+            first.Rule.Source.Arguments.Length
+            |> generateCoefficientVectors
+            |> Seq.tryPick (fun coefficients ->
+                let coefficientOnlyCandidate: LinearRanking =
+                    { Constant = 0I
+                      Coefficients = Array.copy coefficients }
+                let classified =
+                    internalEdges
+                    |> Array.map (fun edge ->
+                        edge, RankingVerification.classifyLinearDecreaseRule coefficientOnlyCandidate edge)
+                if classified |> Array.exists (snd >> (=) Invalid) then None
+                else
+                    let strictEdges =
+                        classified
+                        |> Array.choose (fun (edge, kind) -> if kind = Strict then Some edge else None)
+                    let weakEdges =
+                        classified
+                        |> Array.choose (fun (edge, kind) -> if kind = Weak then Some edge else None)
+                    if Array.isEmpty strictEdges then None
+                    else
+                        let requiredConstant =
+                            match tryRequiredConstant coefficients internalEdges with
+                            | Some constant -> Some constant
+                            | None -> tryRequiredCycleConstant coefficients strictEdges internalEdges
+                        requiredConstant
+                        |> Option.map (fun constant ->
+                            let candidate: LinearRanking =
+                                { Constant = constant
+                                  Coefficients = Array.copy coefficients }
+                            let method =
+                                if supportSize coefficients = 1 && coefficientWeight coefficients = 1I then Projection
+                                else GeneralLinear
+                            { Ranking = candidate
+                              Method = method
+                              StrictEdges = strictEdges
+                              WeakEdges = weakEdges }))
+
+    /// Strict辺を段階的に除去し、残余の循環コアを次成分で順位付けする。
+    let tryFindLexicographic (internalEdges: Edge array) =
+        let maximumDepth = 8
+        let rec search depth levels remaining =
+            let cyclic = RankingVerification.cyclicEdges remaining
+            if Array.isEmpty cyclic then Some(levels |> List.rev |> List.toArray)
+            elif depth >= maximumDepth then None
+            else
+                match tryFindRemovalLevel cyclic with
+                | None -> None
+                | Some level ->
+                    let next = RankingVerification.cyclicEdges level.WeakEdges
+                    if next.Length >= cyclic.Length then None
+                    else search (depth + 1) (level :: levels) next
+        search 0 [] internalEdges
+
     let tryFindWithEvidence internalEdges =
         match tryFindProjection internalEdges with
         | Some ranking -> Some(ranking, Projection, internalEdges, [||])

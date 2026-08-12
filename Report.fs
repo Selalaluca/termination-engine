@@ -31,7 +31,7 @@ module Report =
             |> Option.bind (function Variable name -> Some name | _ -> None)
             |> Option.defaultValue (sprintf "arg%d" index))
 
-    let private renderRanking proof =
+    let private renderRanking (proof: RankingProof) =
         let ranking = proof.Ranking
         let variables = rankingVariables proof
         let variableTerms =
@@ -61,12 +61,20 @@ module Report =
         | GeneralLinear -> "general-linear"
         | Z3Linear -> "z3-linear"
         | TransitionRemoval -> "transition-removal"
+        | Lexicographic -> "lexicographic"
 
     let private renderEdges graph edges =
         edges
         |> Array.map (fun edge -> sprintf "%s -> %s" graph.Names[edge.Source] graph.Names[edge.Target])
         |> String.concat ", "
 
+    let private renderLexicographicLevel graph index (level: LexicographicLevel) =
+        let method = renderRankingMethod level.Method
+        let coefficients = level.Ranking.Coefficients |> Array.map string |> String.concat ", "
+        [| sprintf "  level %d method: %s" (index + 1) method
+           sprintf "  level %d ranking: constant=%A, coefficients=[%s]" (index + 1) level.Ranking.Constant coefficients
+           sprintf "    strict edges: %s" (renderEdges graph level.StrictEdges)
+           sprintf "    remaining weak edges: %s" (renderEdges graph level.WeakEdges) |]
     let render (graph: ControlFlowGraph) result =
         // 最終判定を分類し、NOには証拠位置、MAYBEには未解決の循環位置を付加する。
         match result with
@@ -76,14 +84,20 @@ module Report =
                 |> Array.collect (fun proof ->
                     let componentText = renderComponent graph proof.Component
                     let method = sprintf "%s ranking method: %s" componentText (renderRankingMethod proof.Method)
-                    let ranking = sprintf "%s %s" componentText (renderRanking proof)
-                    if Array.isEmpty proof.WeakEdges then [| method; ranking |]
+                    if proof.Method = Lexicographic then
+                        Array.concat
+                            [ [| method; sprintf "%s lexicographic ranking levels: %d" componentText proof.Levels.Length |]
+                              proof.Levels |> Array.mapi (renderLexicographicLevel graph) |> Array.concat
+                              [| "  residual graph: acyclic" |] ]
                     else
-                        [| method
-                           ranking
-                           sprintf "  strict edges: %s" (renderEdges graph proof.StrictEdges)
-                           sprintf "  weak edges: %s" (renderEdges graph proof.WeakEdges)
-                           "  weak-only graph: acyclic" |])
+                        let ranking = sprintf "%s %s" componentText (renderRanking proof)
+                        if Array.isEmpty proof.WeakEdges then [| method; ranking |]
+                        else
+                            [| method
+                               ranking
+                               sprintf "  strict edges: %s" (renderEdges graph proof.StrictEdges)
+                               sprintf "  weak edges: %s" (renderEdges graph proof.WeakEdges)
+                               "  weak-only graph: acyclic" |])
             let details =
                 if Array.isEmpty proofs then [||]
                 else

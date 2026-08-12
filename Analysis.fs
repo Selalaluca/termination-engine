@@ -22,14 +22,30 @@ module Analysis =
                     let proofs =
                         cyclic
                         |> Array.map (fun cyclicComponent ->
-                            cyclicComponent.InternalEdges
-                            |> Ranking.tryFindWithEvidence
-                            |> Option.map (fun (ranking, method, strictEdges, weakEdges) ->
-                                { Component = cyclicComponent
-                                  Ranking = ranking
-                                  Method = method
-                                  StrictEdges = strictEdges
-                                  WeakEdges = weakEdges }))
+                            match Ranking.tryFindWithEvidence cyclicComponent.InternalEdges with
+                            | Some(ranking, method, strictEdges, weakEdges) ->
+                                Some {
+                                    Component = cyclicComponent
+                                    Ranking = ranking
+                                    Method = method
+                                    StrictEdges = strictEdges
+                                    WeakEdges = weakEdges
+                                    Levels = [||]
+                                }
+                            | None ->
+                                Ranking.tryFindLexicographic cyclicComponent.InternalEdges
+                                |> Option.bind (fun levels ->
+                                    if levels.Length < 2 then None
+                                    else
+                                        let first = levels[0]
+                                        Some {
+                                            Component = cyclicComponent
+                                            Ranking = first.Ranking
+                                            Method = Lexicographic
+                                            StrictEdges = first.StrictEdges
+                                            WeakEdges = first.WeakEdges
+                                            Levels = levels
+                                        }))
                     if proofs |> Array.forall Option.isSome then
                         proofs |> Array.choose id |> Yes
                     else Maybe cyclic

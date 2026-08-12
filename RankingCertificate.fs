@@ -12,6 +12,14 @@ type RankingMethod =
     | GeneralLinear
     | Z3Linear
     | TransitionRemoval
+    | Lexicographic
+
+type LexicographicLevel = {
+    Ranking: LinearRanking
+    Method: RankingMethod
+    StrictEdges: Edge array
+    WeakEdges: Edge array
+}
 
 /// どの循環成分を、どのランキング関数で証明したかを保持する。
 type RankingProof = {
@@ -20,4 +28,5 @@ type RankingProof = {
     Method: RankingMethod
     StrictEdges: Edge array
     WeakEdges: Edge array
+    Levels: LexicographicLevel array
 }
