@@ -4,6 +4,10 @@ open System.Numerics
 open Microsoft.Z3
 
 module RankingSynthesis =
+    type private SynthesisGoal =
+        | StrictOnAllEdges
+        | WeakOnAllEdgesAndStrictAt of int
+
     let private coefficientDomain = [| -1I; 0I; 1I |]
     let private maximumRankingArity = 6
     let private z3TimeoutMilliseconds = 1000
@@ -12,7 +16,7 @@ module RankingSynthesis =
     let private verifyStrictCandidate internalEdges candidate =
         Z3Backend.verifyStrictRanking z3TimeoutMilliseconds internalEdges candidate = Valid
 
-    let private trySynthesizeFromSamples arity (samples: Z3Backend.RankingSample list array) : LinearRanking option =
+    let private trySynthesizeFromSamples goal arity (samples: Z3Backend.RankingSample list array) : LinearRanking option =
         use context = new Context()
         use solver = context.MkOptimize()
         let parameters = context.MkParams()
@@ -25,7 +29,7 @@ module RankingSynthesis =
         |> context.MkOr
         |> fun constraintExpression -> solver.Add(constraintExpression) |> ignore
         samples
-        |> Array.iter (fun edgeSamples ->
+        |> Array.iteri (fun edgeIndex edgeSamples ->
             edgeSamples
             |> List.iter (fun sample ->
                 let weighted values =
@@ -35,7 +39,12 @@ module RankingSynthesis =
                 let before = context.MkAdd(constant, weighted sample.BeforeArguments)
                 let decrease = context.MkSub(weighted sample.BeforeArguments, weighted sample.AfterArguments)
                 solver.Add(context.MkGe(before, context.MkInt(0))) |> ignore
-                solver.Add(context.MkGe(decrease, context.MkInt(1))) |> ignore))
+                let minimumDecrease =
+                    match goal with
+                    | StrictOnAllEdges -> 1
+                    | WeakOnAllEdgesAndStrictAt strictEdgeIndex when edgeIndex = strictEdgeIndex -> 1
+                    | WeakOnAllEdgesAndStrictAt _ -> 0
+                solver.Add(context.MkGe(decrease, context.MkInt(minimumDecrease))) |> ignore))
         let absolute value =
             context.MkITE(
                 context.MkGe(value, context.MkInt(0)),
@@ -80,7 +89,7 @@ module RankingSynthesis =
                     let rec search iteration =
                         if iteration >= cegisIterationLimit then None
                         else
-                            match trySynthesizeFromSamples arity samples with
+                            match trySynthesizeFromSamples StrictOnAllEdges arity samples with
                             | None -> None
                             | Some candidate ->
                                 match Z3Backend.tryFindStrictRankingCounterexample z3TimeoutMilliseconds internalEdges candidate with
@@ -90,6 +99,66 @@ module RankingSynthesis =
                                     search (iteration + 1)
                                 | Error _ -> None
                     search 0
+
+    /// 全辺で非増加となり、少なくとも指定した1辺で厳密減少する任意整数係数をCEGISで合成する。
+    let tryFindZ3RemovalLevel (internalEdges: Edge array) =
+        match Array.tryHead internalEdges with
+        | None -> None
+        | Some first ->
+            let arity = first.Rule.Source.Arguments.Length
+            if arity = 0 || internalEdges |> Array.exists (fun edge -> edge.Rule.Source.Arguments.Length <> arity || edge.Rule.Target.Arguments.Length <> arity) then
+                None
+            else
+                let initialSamples =
+                    internalEdges
+                    |> Array.map (Z3Backend.trySampleRule z3TimeoutMilliseconds)
+                if initialSamples |> Array.exists Result.isError then None
+                else
+                    [ 0 .. internalEdges.Length - 1 ]
+                    |> List.tryPick (fun strictEdgeIndex ->
+                        match initialSamples[strictEdgeIndex] with
+                        | Ok None -> None
+                        | Error _ -> None
+                        | Ok(Some _) ->
+                            let samples =
+                                initialSamples
+                                |> Array.map (function Ok(Some sample) -> [ sample ] | _ -> [])
+                            let rec search iteration =
+                                if iteration >= cegisIterationLimit then None
+                                else
+                                    match trySynthesizeFromSamples (WeakOnAllEdgesAndStrictAt strictEdgeIndex) arity samples with
+                                    | None -> None
+                                    | Some candidate ->
+                                        match Z3Backend.tryFindRemovalRankingCounterexample z3TimeoutMilliseconds strictEdgeIndex internalEdges candidate with
+                                        | Error _ -> None
+                                        | Ok(Some(edgeIndex, sample)) ->
+                                            samples[edgeIndex] <- sample :: samples[edgeIndex]
+                                            search (iteration + 1)
+                                        | Ok None ->
+                                            let classified =
+                                                internalEdges
+                                                |> Array.map (fun edge ->
+                                                    match Z3Backend.verifyStrictRankingRule z3TimeoutMilliseconds candidate edge with
+                                                    | SmtVerificationResult.Valid -> Some(edge, Strict)
+                                                    | SmtVerificationResult.Invalid ->
+                                                        match Z3Backend.verifyWeakRankingRule z3TimeoutMilliseconds candidate edge with
+                                                        | SmtVerificationResult.Valid -> Some(edge, Weak)
+                                                        | _ -> None
+                                                    | SmtVerificationResult.Inconclusive _ -> None)
+                                            if classified |> Array.exists Option.isNone then None
+                                            else
+                                                let values = classified |> Array.choose id
+                                                let strictEdges = values |> Array.choose (fun (edge, kind) -> if kind = Strict then Some edge else None)
+                                                let weakEdges = values |> Array.choose (fun (edge, kind) -> if kind = Weak then Some edge else None)
+                                                if Array.isEmpty strictEdges then None
+                                                else
+                                                    Some {
+                                                        Ranking = candidate
+                                                        Method = Z3Linear
+                                                        StrictEdges = strictEdges
+                                                        WeakEdges = weakEdges
+                                                    }
+                            search 0)
 
     let rec private enumerateCoefficientVectors arity =
         if arity = 0 then
@@ -298,7 +367,13 @@ module RankingSynthesis =
             elif depth >= maximumDepth then None
             else
                 match tryFindRemovalLevel cyclic with
-                | None -> None
+                | None ->
+                    match tryFindZ3RemovalLevel cyclic with
+                    | None -> None
+                    | Some level ->
+                        let next = RankingVerification.cyclicEdges level.WeakEdges
+                        if next.Length >= cyclic.Length then None
+                        else search (depth + 1) (level :: levels) next
                 | Some level ->
                     let next = RankingVerification.cyclicEdges level.WeakEdges
                     if next.Length >= cyclic.Length then None

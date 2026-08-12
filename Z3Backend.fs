@@ -68,6 +68,35 @@ module Z3Backend =
             | _, Inconclusive reason -> Inconclusive reason
             | Valid, Valid -> Valid) Valid
 
+    let verifyWeakRankingRule timeoutMilliseconds (ranking: LinearRanking) (edge: Edge) =
+        match
+            LinearArithmetic.tryInstantiate ranking edge.Rule.Source.Arguments,
+            LinearArithmetic.tryInstantiate ranking edge.Rule.Target.Arguments
+        with
+        | Some before, Some after ->
+            use context = new Context()
+            let environment = Z3Encoding.createEnvironment context
+            let guard =
+                match edge.Rule.Guard with
+                | None -> Ok(context.MkTrue())
+                | Some value -> Z3Encoding.encodeBool environment value
+            match guard with
+            | Error reason -> Inconclusive reason
+            | Ok encodedGuard ->
+                let beforeExpression = Z3Encoding.encodeLinearForm environment before
+                let afterExpression = Z3Encoding.encodeLinearForm environment after
+                let violation =
+                    context.MkAnd(
+                        encodedGuard,
+                        context.MkOr(
+                            context.MkLt(beforeExpression, context.MkInt(0)),
+                            context.MkLt(beforeExpression, afterExpression)))
+                match check context timeoutMilliseconds violation with
+                | Unsat -> Valid
+                | Sat -> Invalid
+                | Unknown reason -> Inconclusive reason
+        | _ -> Inconclusive "ランキング関数を遷移引数へ適用できません。"
+
     let private tryModelInteger (model: Model) (expression: ArithExpr) =
         match model.Evaluate(expression, true) with
         | :? IntNum as value -> Some(BigInteger.Parse(value.ToString()))
@@ -139,6 +168,60 @@ module Z3Backend =
                             context.MkOr(
                                 context.MkLt(beforeExpression, context.MkInt(0)),
                                 context.MkLt(beforeExpression, context.MkAdd(afterExpression, context.MkInt(1))))
+                        use solver = context.MkSolver()
+                        let parameters = context.MkParams()
+                        parameters.Add("timeout", uint32 timeoutMilliseconds) |> ignore
+                        solver.Parameters <- parameters
+                        solver.Add(context.MkAnd(encodedGuard, violation))
+                        match solver.Check() with
+                        | Status.UNSATISFIABLE -> inspect (index + 1)
+                        | Status.UNKNOWN -> Error solver.ReasonUnknown
+                        | Status.SATISFIABLE ->
+                            let model = solver.Model
+                            let read expressions =
+                                expressions
+                                |> List.choose (function Ok value -> tryModelInteger model value | Error _ -> None)
+                                |> List.toArray
+                            let beforeValues = read sourceArguments
+                            let afterValues = read targetArguments
+                            if beforeValues.Length = sourceArguments.Length && afterValues.Length = targetArguments.Length then
+                                Ok(Some(index, { BeforeArguments = beforeValues; AfterArguments = afterValues }))
+                            else Error "Z3反例から遷移引数の整数値を取得できません。"
+                        | status -> Error(sprintf "予期しないZ3状態: %A" status)
+                | _ -> Error "ランキング関数を遷移引数へ適用できません。"
+        inspect 0
+
+    /// 全辺の非負・非増加と、指定辺の厳密減少に対する最初の反例を返す。
+    let tryFindRemovalRankingCounterexample timeoutMilliseconds strictEdgeIndex (internalEdges: Edge array) (ranking: LinearRanking) =
+        let rec inspect index =
+            if index >= internalEdges.Length then Ok None
+            else
+                let edge = internalEdges[index]
+                match
+                    LinearArithmetic.tryInstantiate ranking edge.Rule.Source.Arguments,
+                    LinearArithmetic.tryInstantiate ranking edge.Rule.Target.Arguments
+                with
+                | Some before, Some after ->
+                    use context = new Context()
+                    let environment = Z3Encoding.createEnvironment context
+                    let guard =
+                        match edge.Rule.Guard with
+                        | None -> Ok(context.MkTrue())
+                        | Some value -> Z3Encoding.encodeBool environment value
+                    let sourceArguments = edge.Rule.Source.Arguments |> List.map (Z3Encoding.encodeInt environment)
+                    let targetArguments = edge.Rule.Target.Arguments |> List.map (Z3Encoding.encodeInt environment)
+                    match guard, sourceArguments |> List.tryPick (function Error error -> Some error | _ -> None), targetArguments |> List.tryPick (function Error error -> Some error | _ -> None) with
+                    | Error reason, _, _
+                    | _, Some reason, _
+                    | _, _, Some reason -> Error reason
+                    | Ok encodedGuard, None, None ->
+                        let beforeExpression = Z3Encoding.encodeLinearForm environment before
+                        let afterExpression = Z3Encoding.encodeLinearForm environment after
+                        let requiredDecrease = if index = strictEdgeIndex then context.MkInt(1) else context.MkInt(0)
+                        let violation =
+                            context.MkOr(
+                                context.MkLt(beforeExpression, context.MkInt(0)),
+                                context.MkLt(beforeExpression, context.MkAdd(afterExpression, requiredDecrease)))
                         use solver = context.MkSolver()
                         let parameters = context.MkParams()
                         parameters.Add("timeout", uint32 timeoutMilliseconds) |> ignore

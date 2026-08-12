@@ -41,7 +41,7 @@ tests/fixtures/
   analysis/  SCC、ランキング、SMT、非停止解析
   generated/ cil2koatが生成したKoATの独立スナップショット
   cases/     test1.koat ～ test16.koatの総合判定
-  termination/ 2重・3重ループ、末尾再帰、相互再帰
+  termination/ 2重・3重・4重ループ、独立境界の入れ子ループ、末尾再帰、相互再帰
 ```
 
 F#側には期待する構文木、証明情報、または`YES`／`NO`／`MAYBE`だけを記述する。
@@ -75,7 +75,7 @@ cyclic SCCs: (loop)
 
 `ranking method`には、最終的に成立して採用された探索方式として`projection`、`general-linear`、`z3-linear`、`transition-removal`、または`lexicographic`を表示する。不成立だった候補は表示しない。
 
-単一ランキングで証明できない入れ子ループには、Strict辺を段階的に除去する辞書式ランキングを使用する。各段では残余の循環に属する辺だけを次段へ渡し、最大8段まで探索する。成立時は`ranking method: lexicographic`と各段の係数、Strict辺、Weak辺を`-i`で表示する。
+単一ランキングで証明できない入れ子ループには、Strict辺を段階的に除去する辞書式ランキングを使用する。各段では残余の循環に属する辺だけを次段へ渡し、最大8段まで探索する。係数`{-1,0,1}`の有限探索で失敗した段では、既存のCEGISを再利用して、全辺で非増加かつ指定辺で厳密減少する任意整数係数をZ3で合成する。合成候補は各辺についてZ3で再検証する。成立時は`ranking method: lexicographic`と各段の合成方式、係数、Strict辺、Weak辺を`-i`で表示する。
 
 `-i`を指定した場合、`NO`と`MAYBE`でも到達可能な循環SCCを同じ括弧形式で表示する。
 

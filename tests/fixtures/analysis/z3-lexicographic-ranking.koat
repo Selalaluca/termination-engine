@@ -1,0 +1,13 @@
+# No {-1,0,1} coefficient vector is non-increasing on both cyclic updates.
+# Z3 first synthesizes an unrestricted removal level, then a projection closes the residual cycle.
+(GOAL TERMINATION)
+(STARTTERM (FUNCTIONSYMBOLS eval))
+(VAR x y)
+(RULES
+  eval(x,y) -> a(x,y)
+  a(x,y) -> a(x - 2,y + 3) [x > 0 && 3*x + 2*y >= 0]
+  a(x,y) -> b(x + 1,y - 2) [x > 0 && y > 0 && 3*x + 2*y >= 0]
+  a(x,y) -> done(x,y) [x <= 0]
+  b(x,y) -> a(x,y) [x > 0 && y > 0 && 3*x + 2*y >= 0]
+  b(x,y) -> done(x,y) [x <= 0]
+)

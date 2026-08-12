@@ -360,6 +360,21 @@ let unitTests = [
             require (proof.Levels[0].Ranking.Coefficients = [| 0I; 0I; 1I; 0I |]) "outer counter i was not ranked first"
             require (proof.Levels[1].Ranking.Coefficients = [| 0I; 0I; 0I; 1I |]) "inner counter j was not ranked second"
         | _ -> failwith "independent-bound loop was not proven by a lexicographic ranking"
+    "Z3 synthesizes a lexicographic removal level", fun () ->
+        let system = parseTestFixture (Path.Combine("analysis", "z3-lexicographic-ranking.koat"))
+        let graph, _, result = Analysis.analyse system
+        match result with
+        | Yes [| proof |] ->
+            require (proof.Method = Lexicographic) "Z3 removal fixture did not use a lexicographic proof"
+            require (proof.Levels.Length = 2) "Z3 removal fixture has the wrong lexicographic depth"
+            require (proof.Levels[0].Method = Z3Linear) "first lexicographic level was not synthesized by Z3"
+            require
+                (proof.Levels[0].Ranking.Coefficients |> Array.exists (fun coefficient -> abs coefficient > 1I))
+                "Z3 lexicographic level did not require an unrestricted coefficient"
+            require
+                ((Report.render graph result).Contains("level 1 method: z3-linear"))
+                "report omitted the Z3 lexicographic level"
+        | _ -> failwith "Z3 did not synthesize the required lexicographic ranking"
     "cycle-dependent lower bound proves decreasing y", fun () ->
         let system = parseTestFixture (Path.Combine("analysis", "cycle-dependent-lower-bound.koat"))
         let _, _, result = Analysis.analyse system
