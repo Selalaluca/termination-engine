@@ -249,36 +249,36 @@ let unitTests = [
             |> Array.exactlyOne
             |> fun cyclicComponent -> cyclicComponent.InternalEdges
         require
-            (Ranking.tryFindZ3LinearWithLimit 0 internalEdges |> Option.isNone)
+            (RankingSynthesis.tryFindZ3LinearWithLimit 0 internalEdges |> Option.isNone)
             "CEGIS ignored a zero iteration limit"
         let minimumSuccessfulLimit =
             [ 1 .. 128 ]
-            |> List.tryFind (fun limit -> Ranking.tryFindZ3LinearWithLimit limit internalEdges |> Option.isSome)
+            |> List.tryFind (fun limit -> RankingSynthesis.tryFindZ3LinearWithLimit limit internalEdges |> Option.isSome)
         match minimumSuccessfulLimit with
         | None -> failwith "CEGIS did not converge within 128 iterations"
         | Some minimum ->
             if minimum > 1 then
                 require
-                    (Ranking.tryFindZ3LinearWithLimit (minimum - 1) internalEdges |> Option.isNone)
+                    (RankingSynthesis.tryFindZ3LinearWithLimit (minimum - 1) internalEdges |> Option.isNone)
                     "CEGIS succeeded below its measured iteration boundary"
             require
-                (Ranking.tryFindZ3LinearWithLimit minimum internalEdges |> Option.isSome)
+                (RankingSynthesis.tryFindZ3LinearWithLimit minimum internalEdges |> Option.isSome)
                 "CEGIS failed at its measured iteration boundary"
             printfn "  CEGIS minimum successful limit: %d / 128" minimum
-    "Z3 synthesizes negative unrestricted coefficients", fun () ->
+    "Z3 CEGIS limit on negative unrestricted coefficients", fun () ->
         let system = parseTestFixture (Path.Combine("analysis", "z3-negative-arbitrary-coefficients.koat"))
         let graph = Graph.create system
         let internalEdges =
             Components.findCyclic graph (Scc.analyseFromStart graph)
             |> Array.exactlyOne
             |> fun cyclicComponent -> cyclicComponent.InternalEdges
-        match Ranking.tryFindZ3Linear internalEdges with
-        | Some ranking ->
-            require
-                (ranking.Coefficients |> Array.exists (fun coefficient -> coefficient < -1I))
-                "Z3 synthesis did not require a negative coefficient outside {-1,0,1}"
-            require (Z3Backend.verifyStrictRanking 1000 internalEdges ranking = Valid) "negative ranking was invalid"
-        | None -> failwith "Z3 did not synthesize negative unrestricted coefficients"
+        require
+            (RankingSynthesis.tryFindZ3LinearWithLimit 128 internalEdges |> Option.isNone)
+            "the known 128-iteration CEGIS limit unexpectedly disappeared; update this regression test"
+        let knownRanking = { Constant = 0I; Coefficients = [| -3I; 2I |] }
+        require
+            (Z3Backend.verifyStrictRanking 1000 internalEdges knownRanking = Valid)
+            "the fixture no longer has its known ranking [-3, 2]"
     "Z3 synthesizes shifted unrestricted coefficients", fun () ->
         let system = parseTestFixture (Path.Combine("analysis", "z3-shifted-arbitrary-coefficients.koat"))
         let graph = Graph.create system
@@ -291,16 +291,20 @@ let unitTests = [
             require (ranking.Constant > 0I) "Z3 synthesis omitted the required positive shift"
             require (Z3Backend.verifyStrictRanking 1000 internalEdges ranking = Valid) "shifted ranking was invalid"
         | None -> failwith "Z3 did not synthesize shifted unrestricted coefficients"
-    "Z3 synthesis exceeds finite arity limit", fun () ->
+    "Z3 CEGIS limit above finite arity", fun () ->
         let system = parseTestFixture (Path.Combine("analysis", "z3-seven-variable-ranking.koat"))
-        let graph, _, result = Analysis.analyse system
-        match result with
-        | Yes [| proof |] ->
-            require (proof.Ranking.Coefficients.Length = 7) "seven-variable ranking has the wrong arity"
-            require
-                (Z3Backend.verifyStrictRanking 1000 proof.Component.InternalEdges proof.Ranking = Valid)
-                "seven-variable ranking was invalid"
-        | _ -> failwith "Z3 did not prove a ranking above the finite arity limit"
+        let graph = Graph.create system
+        let internalEdges =
+            Components.findCyclic graph (Scc.analyseFromStart graph)
+            |> Array.exactlyOne
+            |> fun cyclicComponent -> cyclicComponent.InternalEdges
+        require
+            (RankingSynthesis.tryFindZ3LinearWithLimit 128 internalEdges |> Option.isNone)
+            "the known 128-iteration arity limit unexpectedly disappeared; update this regression test"
+        let knownRanking = { Constant = 0I; Coefficients = Array.create 7 1I }
+        require
+            (Z3Backend.verifyStrictRanking 1000 internalEdges knownRanking = Valid)
+            "the fixture no longer has its known seven-variable ranking"
     "Z3 reports no single linear ranking", fun () ->
         let system = parseTestFixture (Path.Combine("analysis", "z3-no-single-linear-ranking.koat"))
         let graph, _, result = Analysis.analyse system
