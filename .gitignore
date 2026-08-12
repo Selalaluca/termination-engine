@@ -23,7 +23,8 @@
 !/Z3Encoding.fs
 !/TerminationEngine.fsproj
 
-!/.github/workflows/ci.yml
+!/.github
+!/.github/**
 !/tests
 !/tests/*
 !/tests/.**
