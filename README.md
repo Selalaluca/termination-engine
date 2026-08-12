@@ -49,8 +49,12 @@ F#側には期待する構文木、証明情報、または`YES`／`NO`／`MAYBE
 ## 使い方
 
 ```powershell
-dotnet run --project TerminationEngine.fsproj -- input.koat
+dotnet run --project TerminationEngine.fsproj -- [-t] [-i] input.koat
 ```
+
+- `-t`: 停止性判定時間と総処理時間を標準エラーへ表示する。
+- `-i`: 循環SCC、ランキング証明、非停止証拠などの詳細情報を表示する。
+- オプションなし: `YES`、`NO`、`MAYBE`の判定結果だけを表示する。
 
 最終的な出力：
 
@@ -60,17 +64,29 @@ NO     非停止を証明した
 MAYBE  どちらも証明できなかった
 ```
 
-ランキング関数で`YES`を証明した場合は、循環SCCと採用した証明書も表示する。
+`-i`を指定し、ランキング関数で`YES`を証明した場合は、循環SCCと採用した証明書も表示する。
 
 ```text
 YES
 cyclic SCCs: (loop)
+(loop) ranking method: projection
 (loop) ranking: rho(x) = -x + 9 [constant=9, coefficients=[-1]]
 ```
 
-`NO`と`MAYBE`でも、到達可能な循環SCCを同じ括弧形式で表示する。
+`ranking method`には、最終的に成立して採用された探索方式として`projection`、`general-linear`、`z3-linear`、または`transition-removal`を表示する。不成立だった候補は表示しない。
+
+`-i`を指定した場合、`NO`と`MAYBE`でも到達可能な循環SCCを同じ括弧形式で表示する。
 
 構文・意味エラーはファイル名、行、列とともに標準エラーへ出力する。
+
+`-t`を指定すると、`Analysis.analyse`による停止性判定時間と、ファイル読み込みからレポート生成までの総処理時間を計測し、標準エラーへミリ秒単位で出力する。総処理時間にはコンソールへの出力時間を含めない。
+
+```text
+停止性判定時間: 12.345 ms
+総処理時間: 15.678 ms
+```
+
+判定結果は従来どおり標準出力へ出すため、結果だけをリダイレクトする既存の利用方法には影響しない。
 
 ```text
 input.koat(5,7): KoATの構文が正しくありません。

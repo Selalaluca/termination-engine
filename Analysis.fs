@@ -24,9 +24,10 @@ module Analysis =
                         |> Array.map (fun cyclicComponent ->
                             cyclicComponent.InternalEdges
                             |> Ranking.tryFindWithEvidence
-                            |> Option.map (fun (ranking, strictEdges, weakEdges) ->
+                            |> Option.map (fun (ranking, method, strictEdges, weakEdges) ->
                                 { Component = cyclicComponent
                                   Ranking = ranking
+                                  Method = method
                                   StrictEdges = strictEdges
                                   WeakEdges = weakEdges }))
                     if proofs |> Array.forall Option.isSome then

@@ -1,6 +1,12 @@
 namespace TerminationEngine
 
 module Report =
+    let renderVerdict result =
+        match result with
+        | Yes _ -> "YES"
+        | No _ -> "NO"
+        | Maybe _ -> "MAYBE"
+
     let private renderComponent (graph: ControlFlowGraph) (cyclicComponent: CyclicComponent) =
         cyclicComponent.Locations
         |> Array.map (fun id -> graph.Names[id])
@@ -50,6 +56,12 @@ module Report =
             ranking.Constant
             (ranking.Coefficients |> Array.map string |> String.concat ", ")
 
+    let private renderRankingMethod = function
+        | Projection -> "projection"
+        | GeneralLinear -> "general-linear"
+        | Z3Linear -> "z3-linear"
+        | TransitionRemoval -> "transition-removal"
+
     let private renderEdges graph edges =
         edges
         |> Array.map (fun edge -> sprintf "%s -> %s" graph.Names[edge.Source] graph.Names[edge.Target])
@@ -62,10 +74,13 @@ module Report =
             let rankings =
                 proofs
                 |> Array.collect (fun proof ->
-                    let ranking = sprintf "%s %s" (renderComponent graph proof.Component) (renderRanking proof)
-                    if Array.isEmpty proof.WeakEdges then [| ranking |]
+                    let componentText = renderComponent graph proof.Component
+                    let method = sprintf "%s ranking method: %s" componentText (renderRankingMethod proof.Method)
+                    let ranking = sprintf "%s %s" componentText (renderRanking proof)
+                    if Array.isEmpty proof.WeakEdges then [| method; ranking |]
                     else
-                        [| ranking
+                        [| method
+                           ranking
                            sprintf "  strict edges: %s" (renderEdges graph proof.StrictEdges)
                            sprintf "  weak edges: %s" (renderEdges graph proof.WeakEdges)
                            "  weak-only graph: acyclic" |])

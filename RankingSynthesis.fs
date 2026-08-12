@@ -250,16 +250,19 @@ module RankingSynthesis =
 
     let tryFindWithEvidence internalEdges =
         match tryFindProjection internalEdges with
-        | Some ranking -> Some(ranking, internalEdges, [||])
+        | Some ranking -> Some(ranking, Projection, internalEdges, [||])
         | None ->
             match tryFindGeneralLinear internalEdges with
-            | Some ranking -> Some(ranking, internalEdges, [||])
+            | Some ranking -> Some(ranking, GeneralLinear, internalEdges, [||])
             | None ->
                 match tryFindZ3Linear internalEdges with
-                | Some ranking -> Some(ranking, internalEdges, [||])
-                | None -> tryFindTransitionRemoval internalEdges
+                | Some ranking -> Some(ranking, Z3Linear, internalEdges, [||])
+                | None ->
+                    tryFindTransitionRemoval internalEdges
+                    |> Option.map (fun (ranking, strictEdges, weakEdges) ->
+                        ranking, TransitionRemoval, strictEdges, weakEdges)
 
     /// 高速なアフィン射影を先に試し、失敗した場合だけ一般線形候補を探索する。
     let tryFind internalEdges =
         tryFindWithEvidence internalEdges
-        |> Option.map (fun (ranking, _, _) -> ranking)
+        |> Option.map (fun (ranking, _, _, _) -> ranking)
