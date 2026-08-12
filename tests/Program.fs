@@ -3,14 +3,13 @@ open System.IO
 open TerminationEngine
 
 let require condition message = if not condition then failwith message
-let parseFixture relative = File.ReadAllText(Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "cil2koat", relative)) |> KoatParser.parse
 let readTestFixture relative = File.ReadAllText(Path.Combine(__SOURCE_DIRECTORY__, "fixtures", relative))
 let parseTestFixture relative = readTestFixture relative |> KoatParser.parse
 
 let unitTests = [
     "generated files", fun () ->
         for name in [ "Linear"; "IfElse"; "Switch"; "StackMerge"; "Infinite" ] do
-            let parsed = parseFixture (Path.Combine("tests", "golden", name + ".koat"))
+            let parsed = parseTestFixture (Path.Combine("generated", name + ".koat"))
             require (not parsed.Rules.IsEmpty) (name + " has no rules")
     "line comments", fun () ->
         let parsed = parseTestFixture (Path.Combine("parser", "line-comments.koat"))
@@ -258,7 +257,7 @@ let unitTests = [
         let _, _, result = Analysis.analyse system
         match result with Maybe _ -> () | _ -> failwith "non-decreasing loop was unsafely ranked"
     "obvious non-termination", fun () ->
-        let system = parseFixture (Path.Combine("tests", "golden", "Infinite.koat"))
+        let system = parseTestFixture (Path.Combine("generated", "Infinite.koat"))
         let graph, _, result = Analysis.analyse system
         match result with
         | No witness ->

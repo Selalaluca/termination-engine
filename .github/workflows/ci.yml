@@ -17,10 +17,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Z3 native dependencies
+      - name: Install Z3 4.12.2 native library
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libz3-dev libgomp1
+          sudo apt-get install --yes libgomp1 unzip
+          curl --fail --location --output /tmp/z3.zip \
+            https://github.com/Z3Prover/z3/releases/download/z3-4.12.2/z3-4.12.2-x64-glibc-2.35.zip
+          unzip -q /tmp/z3.zip -d /tmp/z3
+          sudo install -m 755 /tmp/z3/z3-4.12.2-x64-glibc-2.35/bin/libz3.so /usr/local/lib/libz3.so
+          sudo ldconfig
 
       - name: Set up .NET 10
         uses: actions/setup-dotnet@v4
