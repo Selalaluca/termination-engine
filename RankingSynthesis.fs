@@ -14,7 +14,7 @@ module RankingSynthesis =
 
     let private trySynthesizeFromSamples arity (samples: Z3Backend.RankingSample list array) : LinearRanking option =
         use context = new Context()
-        use solver = context.MkSolver()
+        use solver = context.MkOptimize()
         let parameters = context.MkParams()
         parameters.Add("timeout", uint32 z3TimeoutMilliseconds) |> ignore
         solver.Parameters <- parameters
@@ -23,7 +23,7 @@ module RankingSynthesis =
         coefficients
         |> Array.map (fun coefficient -> context.MkNot(context.MkEq(coefficient, context.MkInt(0))))
         |> context.MkOr
-        |> solver.Add
+        |> fun constraintExpression -> solver.Add(constraintExpression) |> ignore
         samples
         |> Array.iter (fun edgeSamples ->
             edgeSamples
@@ -34,8 +34,19 @@ module RankingSynthesis =
                     |> context.MkAdd
                 let before = context.MkAdd(constant, weighted sample.BeforeArguments)
                 let decrease = context.MkSub(weighted sample.BeforeArguments, weighted sample.AfterArguments)
-                solver.Add(context.MkGe(before, context.MkInt(0)))
-                solver.Add(context.MkGe(decrease, context.MkInt(1)))))
+                solver.Add(context.MkGe(before, context.MkInt(0))) |> ignore
+                solver.Add(context.MkGe(decrease, context.MkInt(1))) |> ignore))
+        let absolute value =
+            context.MkITE(
+                context.MkGe(value, context.MkInt(0)),
+                value,
+                context.MkUnaryMinus(value)) :?> ArithExpr
+        coefficients
+        |> Array.map absolute
+        |> context.MkAdd
+        |> solver.MkMinimize
+        |> ignore
+        absolute constant |> solver.MkMinimize |> ignore
         match solver.Check() with
         | Status.SATISFIABLE ->
             let model = solver.Model
