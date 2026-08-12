@@ -222,6 +222,97 @@ let unitTests = [
             require (proof.Ranking.Coefficients = [| 1I; 1I |]) "final proof did not retain x+y"
             require ((Report.render graph result).Contains("rho(x,y) = x + y")) "report omitted x+y ranking"
         | _ -> failwith "test15 was not proven by its general linear ranking"
+    "Z3 synthesizes unrestricted linear coefficients", fun () ->
+        let system = parseTestFixture (Path.Combine("analysis", "z3-arbitrary-coefficients.koat"))
+        let graph = Graph.create system
+        let cyclicComponent = Components.findCyclic graph (Scc.analyseFromStart graph) |> Array.exactlyOne
+        match Ranking.tryFindZ3Linear cyclicComponent.InternalEdges with
+        | Some ranking ->
+            require (ranking.Coefficients = [| 3I; 2I |]) "Z3 did not synthesize coefficients [3, 2]"
+            require
+                (Z3Backend.verifyStrictRanking 1000 cyclicComponent.InternalEdges ranking = Valid)
+                "the synthesized ranking failed independent verification"
+        | None -> failwith "Z3 did not synthesize an unrestricted linear ranking"
+    "Z3 unrestricted coefficients affect final analysis", fun () ->
+        let system = parseTestFixture (Path.Combine("analysis", "z3-arbitrary-coefficients.koat"))
+        let graph, _, result = Analysis.analyse system
+        match result with
+        | Yes [| proof |] ->
+            require (proof.Ranking.Coefficients = [| 3I; 2I |]) "final proof did not retain coefficients [3, 2]"
+            require ((Report.render graph result).Contains("3*x + 2*y")) "report omitted the synthesized ranking"
+        | _ -> failwith "unrestricted Z3 synthesis did not reach the final analysis"
+    "Z3 CEGIS iteration limit boundary", fun () ->
+        let system = parseTestFixture (Path.Combine("analysis", "z3-arbitrary-coefficients.koat"))
+        let graph = Graph.create system
+        let internalEdges =
+            Components.findCyclic graph (Scc.analyseFromStart graph)
+            |> Array.exactlyOne
+            |> fun cyclicComponent -> cyclicComponent.InternalEdges
+        require
+            (Ranking.tryFindZ3LinearWithLimit 0 internalEdges |> Option.isNone)
+            "CEGIS ignored a zero iteration limit"
+        let minimumSuccessfulLimit =
+            [ 1 .. 128 ]
+            |> List.tryFind (fun limit -> Ranking.tryFindZ3LinearWithLimit limit internalEdges |> Option.isSome)
+        match minimumSuccessfulLimit with
+        | None -> failwith "CEGIS did not converge within 128 iterations"
+        | Some minimum ->
+            if minimum > 1 then
+                require
+                    (Ranking.tryFindZ3LinearWithLimit (minimum - 1) internalEdges |> Option.isNone)
+                    "CEGIS succeeded below its measured iteration boundary"
+            require
+                (Ranking.tryFindZ3LinearWithLimit minimum internalEdges |> Option.isSome)
+                "CEGIS failed at its measured iteration boundary"
+            printfn "  CEGIS minimum successful limit: %d / 128" minimum
+    "Z3 synthesizes negative unrestricted coefficients", fun () ->
+        let system = parseTestFixture (Path.Combine("analysis", "z3-negative-arbitrary-coefficients.koat"))
+        let graph = Graph.create system
+        let internalEdges =
+            Components.findCyclic graph (Scc.analyseFromStart graph)
+            |> Array.exactlyOne
+            |> fun cyclicComponent -> cyclicComponent.InternalEdges
+        match Ranking.tryFindZ3Linear internalEdges with
+        | Some ranking ->
+            require
+                (ranking.Coefficients |> Array.exists (fun coefficient -> coefficient < -1I))
+                "Z3 synthesis did not require a negative coefficient outside {-1,0,1}"
+            require (Z3Backend.verifyStrictRanking 1000 internalEdges ranking = Valid) "negative ranking was invalid"
+        | None -> failwith "Z3 did not synthesize negative unrestricted coefficients"
+    "Z3 synthesizes shifted unrestricted coefficients", fun () ->
+        let system = parseTestFixture (Path.Combine("analysis", "z3-shifted-arbitrary-coefficients.koat"))
+        let graph = Graph.create system
+        let internalEdges =
+            Components.findCyclic graph (Scc.analyseFromStart graph)
+            |> Array.exactlyOne
+            |> fun cyclicComponent -> cyclicComponent.InternalEdges
+        match Ranking.tryFindZ3Linear internalEdges with
+        | Some ranking ->
+            require (ranking.Constant > 0I) "Z3 synthesis omitted the required positive shift"
+            require (Z3Backend.verifyStrictRanking 1000 internalEdges ranking = Valid) "shifted ranking was invalid"
+        | None -> failwith "Z3 did not synthesize shifted unrestricted coefficients"
+    "Z3 synthesis exceeds finite arity limit", fun () ->
+        let system = parseTestFixture (Path.Combine("analysis", "z3-seven-variable-ranking.koat"))
+        let graph, _, result = Analysis.analyse system
+        match result with
+        | Yes [| proof |] ->
+            require (proof.Ranking.Coefficients.Length = 7) "seven-variable ranking has the wrong arity"
+            require
+                (Z3Backend.verifyStrictRanking 1000 proof.Component.InternalEdges proof.Ranking = Valid)
+                "seven-variable ranking was invalid"
+        | _ -> failwith "Z3 did not prove a ranking above the finite arity limit"
+    "Z3 reports no single linear ranking", fun () ->
+        let system = parseTestFixture (Path.Combine("analysis", "z3-no-single-linear-ranking.koat"))
+        let graph, _, result = Analysis.analyse system
+        let internalEdges =
+            Graph.create system
+            |> fun createdGraph -> Components.findCyclic createdGraph (Scc.analyseFromStart createdGraph)
+            |> Array.exactlyOne
+            |> fun cyclicComponent -> cyclicComponent.InternalEdges
+        require (Ranking.tryFindZ3Linear internalEdges |> Option.isNone) "Z3 invented a conflicting linear ranking"
+        match result with
+        | Maybe _ -> ()
+        | _ -> failwith "absence of a single linear ranking did not remain MAYBE"
     "transition removal proves mandatory decrease", fun () ->
         let system = parseTestFixture (Path.Combine("analysis", "transition-removal.koat"))
         let graph, _, result = Analysis.analyse system

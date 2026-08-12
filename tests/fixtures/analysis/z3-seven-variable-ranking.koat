@@ -1,0 +1,10 @@
+# CEGIS is not restricted by the old finite-enumeration arity limit of six.
+(GOAL TERMINATION)
+(STARTTERM (FUNCTIONSYMBOLS eval))
+(VAR a b c d e f g)
+(RULES
+  eval(a,b,c,d,e,f,g) -> loop(a,b,c,d,e,f,g)
+  loop(a,b,c,d,e,f,g) -> loop(a - 1,b,c,d,e,f,g) [a + b + c + d + e + f + g > 0]
+  loop(a,b,c,d,e,f,g) -> done(a,b,c,d,e,f,g) [a + b + c + d + e + f + g <= 0]
+)
+

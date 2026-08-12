@@ -1,12 +1,84 @@
 namespace TerminationEngine
 
+open System.Numerics
+open Microsoft.Z3
+
 module RankingSynthesis =
     let private coefficientDomain = [| -1I; 0I; 1I |]
     let private maximumRankingArity = 6
     let private z3TimeoutMilliseconds = 1000
+    let private cegisIterationLimit = 128
 
     let private verifyStrictCandidate internalEdges candidate =
         Z3Backend.verifyStrictRanking z3TimeoutMilliseconds internalEdges candidate = Valid
+
+    let private trySynthesizeFromSamples arity (samples: Z3Backend.RankingSample list array) : LinearRanking option =
+        use context = new Context()
+        use solver = context.MkSolver()
+        let parameters = context.MkParams()
+        parameters.Add("timeout", uint32 z3TimeoutMilliseconds) |> ignore
+        solver.Parameters <- parameters
+        let constant = context.MkIntConst("ranking_constant")
+        let coefficients = Array.init arity (fun index -> context.MkIntConst($"ranking_c_{index}"))
+        coefficients
+        |> Array.map (fun coefficient -> context.MkNot(context.MkEq(coefficient, context.MkInt(0))))
+        |> context.MkOr
+        |> solver.Add
+        samples
+        |> Array.iter (fun edgeSamples ->
+            edgeSamples
+            |> List.iter (fun sample ->
+                let weighted values =
+                    Array.map2 (fun coefficient value ->
+                        context.MkMul(coefficient, context.MkInt(string value))) coefficients values
+                    |> context.MkAdd
+                let before = context.MkAdd(constant, weighted sample.BeforeArguments)
+                let decrease = context.MkSub(weighted sample.BeforeArguments, weighted sample.AfterArguments)
+                solver.Add(context.MkGe(before, context.MkInt(0)))
+                solver.Add(context.MkGe(decrease, context.MkInt(1)))))
+        match solver.Check() with
+        | Status.SATISFIABLE ->
+            let model = solver.Model
+            let read (value: Microsoft.Z3.IntExpr) =
+                match model.Evaluate(value, true) with
+                | :? IntNum as number -> Some(BigInteger.Parse(number.ToString()))
+                | _ -> None
+            match read constant, coefficients |> Array.map read |> Array.fold (fun state item -> Option.map2 Array.append state (item |> Option.map Array.singleton)) (Some [||]) with
+            | Some constantValue, Some coefficientValues ->
+                Some ({ Constant = constantValue; Coefficients = coefficientValues }: LinearRanking)
+            | _ -> None
+        | _ -> None
+
+    /// 係数を有限集合へ制限せず、Z3と反例検証を往復して一般線形ランキングを合成する。
+    let tryFindZ3Linear (internalEdges: Edge array) =
+        match Array.tryHead internalEdges with
+        | None -> None
+        | Some first ->
+            let arity = first.Rule.Source.Arguments.Length
+            if arity = 0 || internalEdges |> Array.exists (fun edge -> edge.Rule.Source.Arguments.Length <> arity || edge.Rule.Target.Arguments.Length <> arity) then
+                None
+            else
+                let initialSamples =
+                    internalEdges
+                    |> Array.map (fun edge -> Z3Backend.trySampleRule z3TimeoutMilliseconds edge)
+                if initialSamples |> Array.exists Result.isError then None
+                else
+                    let samples =
+                        initialSamples
+                        |> Array.map (function Ok(Some sample) -> [ sample ] | _ -> [])
+                    let rec search iteration =
+                        if iteration >= cegisIterationLimit then None
+                        else
+                            match trySynthesizeFromSamples arity samples with
+                            | None -> None
+                            | Some candidate ->
+                                match Z3Backend.tryFindStrictRankingCounterexample z3TimeoutMilliseconds internalEdges candidate with
+                                | Ok None -> Some candidate
+                                | Ok(Some(edgeIndex, sample)) ->
+                                    samples[edgeIndex] <- sample :: samples[edgeIndex]
+                                    search (iteration + 1)
+                                | Error _ -> None
+                    search 0
 
     let rec private enumerateCoefficientVectors arity =
         if arity = 0 then
@@ -171,7 +243,10 @@ module RankingSynthesis =
         | None ->
             match tryFindGeneralLinear internalEdges with
             | Some ranking -> Some(ranking, internalEdges, [||])
-            | None -> tryFindTransitionRemoval internalEdges
+            | None ->
+                match tryFindZ3Linear internalEdges with
+                | Some ranking -> Some(ranking, internalEdges, [||])
+                | None -> tryFindTransitionRemoval internalEdges
 
     /// 高速なアフィン射影を先に試し、失敗した場合だけ一般線形候補を探索する。
     let tryFind internalEdges =
