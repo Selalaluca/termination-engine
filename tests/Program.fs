@@ -241,7 +241,7 @@ let unitTests = [
             require (proof.Ranking.Coefficients = [| 3I; 2I |]) "final proof did not retain coefficients [3, 2]"
             require ((Report.render graph result).Contains("3*x + 2*y")) "report omitted the synthesized ranking"
         | _ -> failwith "unrestricted Z3 synthesis did not reach the final analysis"
-    "Z3 CEGIS iteration limit boundary", fun () ->
+    "Z3 CEGIS converges within default limit", fun () ->
         let system = parseTestFixture (Path.Combine("analysis", "z3-arbitrary-coefficients.koat"))
         let graph = Graph.create system
         let internalEdges =
@@ -249,22 +249,8 @@ let unitTests = [
             |> Array.exactlyOne
             |> fun cyclicComponent -> cyclicComponent.InternalEdges
         require
-            (RankingSynthesis.tryFindZ3LinearWithLimit 0 internalEdges |> Option.isNone)
-            "CEGIS ignored a zero iteration limit"
-        let minimumSuccessfulLimit =
-            [ 1 .. 128 ]
-            |> List.tryFind (fun limit -> RankingSynthesis.tryFindZ3LinearWithLimit limit internalEdges |> Option.isSome)
-        match minimumSuccessfulLimit with
-        | None -> failwith "CEGIS did not converge within 128 iterations"
-        | Some minimum ->
-            if minimum > 1 then
-                require
-                    (RankingSynthesis.tryFindZ3LinearWithLimit (minimum - 1) internalEdges |> Option.isNone)
-                    "CEGIS succeeded below its measured iteration boundary"
-            require
-                (RankingSynthesis.tryFindZ3LinearWithLimit minimum internalEdges |> Option.isSome)
-                "CEGIS failed at its measured iteration boundary"
-            printfn "  CEGIS minimum successful limit: %d / 128" minimum
+            (Ranking.tryFindZ3Linear internalEdges |> Option.isSome)
+            "CEGIS did not converge within its default 128-iteration limit"
     "Z3 CEGIS limit on negative unrestricted coefficients", fun () ->
         let system = parseTestFixture (Path.Combine("analysis", "z3-negative-arbitrary-coefficients.koat"))
         let graph = Graph.create system
@@ -273,7 +259,7 @@ let unitTests = [
             |> Array.exactlyOne
             |> fun cyclicComponent -> cyclicComponent.InternalEdges
         require
-            (RankingSynthesis.tryFindZ3LinearWithLimit 128 internalEdges |> Option.isNone)
+            (Ranking.tryFindZ3Linear internalEdges |> Option.isNone)
             "the known 128-iteration CEGIS limit unexpectedly disappeared; update this regression test"
         let knownRanking = { Constant = 0I; Coefficients = [| -3I; 2I |] }
         require
@@ -299,7 +285,7 @@ let unitTests = [
             |> Array.exactlyOne
             |> fun cyclicComponent -> cyclicComponent.InternalEdges
         require
-            (RankingSynthesis.tryFindZ3LinearWithLimit 128 internalEdges |> Option.isNone)
+            (Ranking.tryFindZ3Linear internalEdges |> Option.isNone)
             "the known 128-iteration arity limit unexpectedly disappeared; update this regression test"
         let knownRanking = { Constant = 0I; Coefficients = Array.create 7 1I }
         require
