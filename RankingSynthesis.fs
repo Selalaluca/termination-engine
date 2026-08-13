@@ -192,6 +192,21 @@ module RankingSynthesis =
                 order)
             |> Seq.map snd
 
+    /// 射影候補はarityに対して線形個しかないため、一般係数列挙のarity上限を超えても探索する。
+    let private generateRemovalCoefficientVectors arity =
+        let projections =
+            seq {
+                for index in 0 .. arity - 1 do
+                    for sign in [ 1I; -1I ] do
+                        let coefficients = Array.zeroCreate arity
+                        coefficients[index] <- sign
+                        yield coefficients
+            }
+        let nonProjectionGeneral =
+            generateCoefficientVectors arity
+            |> Seq.filter (fun coefficients -> supportSize coefficients > 1)
+        Seq.append projections nonProjectionGeneral
+
     let private tryRequiredOffset index sign (internalEdges: Edge array) =
         internalEdges
         |> Array.map (fun edge ->
@@ -298,7 +313,7 @@ module RankingSynthesis =
         | None -> None
         | Some first ->
             first.Rule.Source.Arguments.Length
-            |> generateCoefficientVectors
+            |> generateRemovalCoefficientVectors
             |> Seq.tryPick (fun coefficients ->
                 let coefficientOnlyCandidate: LinearRanking =
                     { Constant = 0I
@@ -322,7 +337,7 @@ module RankingSynthesis =
         | None -> None
         | Some first ->
             first.Rule.Source.Arguments.Length
-            |> generateCoefficientVectors
+            |> generateRemovalCoefficientVectors
             |> Seq.tryPick (fun coefficients ->
                 let coefficientOnlyCandidate: LinearRanking =
                     { Constant = 0I
