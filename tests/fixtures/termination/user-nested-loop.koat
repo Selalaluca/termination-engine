@@ -1,0 +1,17 @@
+(GOAL COMPLEXITY)
+(STARTTERM (FUNCTIONSYMBOLS block_0000))
+(VAR n m loc0 loc1 loc2 loc3)
+(RULES
+  block_0000(n,m,loc0,loc1,loc2,loc3) -> block_0038(n,m,n,0,0,0)
+  block_000A(n,m,loc0,loc1,loc2,loc3) -> block_002C(n,m,loc0,m,m,loc3)
+  block_0010(n,m,loc0,loc1,loc2,loc3) -> block_001F(n,m,loc0,loc1,loc2,loc3) [loc2 <= 0]
+  block_0010(n,m,loc0,loc1,loc2,loc3) -> block_0014(n,m,loc0,loc1,loc2,loc3) [loc2 > 0]
+  block_0014(n,m,loc0,loc1,loc2,loc3) -> block_0028(n,m,loc0,(loc1 + 1),(loc2 - 3),loc3)
+  block_001F(n,m,loc0,loc1,loc2,loc3) -> block_0028(n,m,loc0,(loc1 - 1),(loc2 + 1),loc3)
+  block_0028(n,m,loc0,loc1,loc2,loc3) -> block_002C(n,m,loc0,loc1,loc2,(loc3 + 1))
+  block_002C(n,m,loc0,loc1,loc2,loc3) -> block_0010(n,m,loc0,loc1,loc2,loc3) [((2 * loc1) + loc2) > 0]
+  block_002C(n,m,loc0,loc1,loc2,loc3) -> block_0034(n,m,loc0,loc1,loc2,loc3) [((2 * loc1) + loc2) <= 0]
+  block_0034(n,m,loc0,loc1,loc2,loc3) -> block_0038(n,m,(loc0 - 1),loc1,loc2,loc3)
+  block_0038(n,m,loc0,loc1,loc2,loc3) -> block_000A(n,m,loc0,loc1,loc2,loc3) [loc0 > 0]
+  block_0038(n,m,loc0,loc1,loc2,loc3) -> block_003C(n,m,loc0,loc1,loc2,loc3) [loc0 <= 0]
+)

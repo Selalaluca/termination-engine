@@ -1,0 +1,18 @@
+# F#:
+# let affineDouble x y =
+#   let mutable a, b = x, y
+#   while a > 0 do
+#     if branch then a <- a - 2; b <- b + 3
+#     else a <- a + 1; b <- b - 2
+# The unrestricted baseline CEGIS path needs the affine lexicographic direction.
+(GOAL TERMINATION)
+(STARTTERM (FUNCTIONSYMBOLS main))
+(VAR x y)
+(RULES
+  main(x,y) -> a(x,y)
+  a(x,y) -> a(x - 2,y + 3) [x > 0 && 3*x + 2*y >= 0]
+  a(x,y) -> b(x + 1,y - 2) [x > 0 && y > 0 && 3*x + 2*y >= 0]
+  a(x,y) -> done(x,y) [x <= 0]
+  b(x,y) -> a(x,y) [x > 0 && y > 0 && 3*x + 2*y >= 0]
+  b(x,y) -> done(x,y) [x <= 0]
+)

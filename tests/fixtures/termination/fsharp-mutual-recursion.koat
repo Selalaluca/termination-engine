@@ -1,0 +1,13 @@
+# F#:
+# let rec even n = if n > 0 then odd (n - 1) else ()
+# and odd n = if n > 0 then even (n - 1) else ()
+(GOAL TERMINATION)
+(STARTTERM (FUNCTIONSYMBOLS main))
+(VAR n)
+(RULES
+  main(n) -> even(n)
+  even(n) -> odd(n - 1) [n > 0]
+  even(n) -> done(n) [n <= 0]
+  odd(n) -> even(n - 1) [n > 0]
+  odd(n) -> done(n) [n <= 0]
+)

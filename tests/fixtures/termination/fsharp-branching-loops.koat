@@ -1,0 +1,19 @@
+# F#:
+# let branch n =
+#   if n < 0 then
+#     let mutable i = n
+#     while i < 0 do i <- i + 1
+#   else
+#     let mutable i = n
+#     while i > 0 do i <- i - 1
+(GOAL TERMINATION)
+(STARTTERM (FUNCTIONSYMBOLS main))
+(VAR n i)
+(RULES
+  main(n) -> up(n) [n < 0]
+  main(n) -> down(n) [n >= 0]
+  up(i) -> up(i + 1) [i < 0]
+  up(i) -> done(i) [i >= 0]
+  down(i) -> down(i - 1) [i > 0]
+  down(i) -> done(i) [i <= 0]
+)

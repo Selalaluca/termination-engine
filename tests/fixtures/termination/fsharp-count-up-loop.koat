@@ -1,0 +1,9 @@
+# F#: let countUp n = let mutable i = n in while i < 0 do i <- i + 1
+(GOAL TERMINATION)
+(STARTTERM (FUNCTIONSYMBOLS main))
+(VAR n i)
+(RULES
+  main(n) -> loop(n)
+  loop(i) -> loop(i + 1) [i < 0]
+  loop(i) -> done(i) [i >= 0]
+)
