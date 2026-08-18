@@ -1,5 +1,6 @@
 namespace TerminationEngine
 
+open System.Collections.Concurrent
 open System.Numerics
 open Microsoft.Z3
 
@@ -8,6 +9,62 @@ module Z3Backend =
         BeforeArguments: bigint array
         AfterArguments: bigint array
     }
+
+    /// 1回の解析中に同じSMT問い合わせを再利用するためのキー。
+    /// Z3のContextやASTは保持せず、入力の値だけをキーにする。
+    type private CacheKey = {
+        Operation: string
+        TimeoutMilliseconds: int
+        StrictEdgeIndex: int option
+        Invariants: string
+        Ranking: string
+        Edge: string
+        Edges: string
+    }
+
+    let private strictRuleCache = ConcurrentDictionary<CacheKey, SmtVerificationResult>()
+    let private weakRuleCache = ConcurrentDictionary<CacheKey, SmtVerificationResult>()
+    let private sampleCache = ConcurrentDictionary<CacheKey, Result<RankingSample option, string>>()
+    let private strictCounterexampleCache =
+        ConcurrentDictionary<CacheKey, Result<(int * RankingSample) option, string>>()
+    let private removalCounterexampleCache =
+        ConcurrentDictionary<CacheKey, Result<(int * RankingSample) option, string>>()
+
+    let private keyText value = sprintf "%A" value
+
+    let private createCacheKey operation timeoutMilliseconds strictEdgeIndex invariants ranking edge edges =
+        { Operation = operation
+          TimeoutMilliseconds = timeoutMilliseconds
+          StrictEdgeIndex = strictEdgeIndex
+          Invariants = keyText invariants
+          Ranking = keyText ranking
+          Edge = keyText edge
+          Edges = keyText edges }
+
+    let private getOrAdd
+        (cache: ConcurrentDictionary<'key, 'value>)
+        (key: 'key)
+        (computation: unit -> 'value) =
+        match cache.TryGetValue key with
+        | true, value -> value
+        | false, _ ->
+            let value = computation ()
+            cache.TryAdd(key, value) |> ignore
+            value
+
+    /// 独立した辺に対する問い合わせを並列化する。
+    /// 少数の辺ではスレッド切り替えのコストを避ける。
+    let private mapInParallel (mapping: 'a -> 'b) (values: 'a array) : 'b array =
+        if values.Length < 2 then Array.map mapping values
+        else Array.Parallel.map mapping values
+
+    /// 解析開始時に呼び出し、前の解析の結果を持ち越さない。
+    let clearCache () =
+        strictRuleCache.Clear()
+        weakRuleCache.Clear()
+        sampleCache.Clear()
+        strictCounterexampleCache.Clear()
+        removalCounterexampleCache.Clear()
 
     let private encodeComparison (context: Context) comparison left right =
         match comparison with
@@ -57,7 +114,11 @@ module Z3Backend =
         | Status.UNKNOWN -> Unknown solver.ReasonUnknown
         | status -> Unknown(sprintf "予期しないZ3状態: %A" status)
 
-    let verifyStrictRankingRuleWithInvariants timeoutMilliseconds (invariants: InvariantContext) (ranking: LinearRanking) (edge: Edge) =
+    let private verifyStrictRankingRuleWithInvariantsUncached
+        timeoutMilliseconds
+        (invariants: InvariantContext)
+        (ranking: LinearRanking)
+        (edge: Edge) =
         match
             LinearArithmetic.tryInstantiate ranking edge.Rule.Source.Arguments,
             LinearArithmetic.tryInstantiate ranking edge.Rule.Target.Arguments
@@ -90,9 +151,14 @@ module Z3Backend =
                 | _, Unknown reason -> Inconclusive reason
         | _ -> Inconclusive "ランキング関数を遷移引数へ適用できません。"
 
+    let verifyStrictRankingRuleWithInvariants timeoutMilliseconds (invariants: InvariantContext) (ranking: LinearRanking) (edge: Edge) =
+        let key = createCacheKey "strict-rule" timeoutMilliseconds None invariants ranking edge [||]
+        getOrAdd strictRuleCache key (fun () ->
+            verifyStrictRankingRuleWithInvariantsUncached timeoutMilliseconds invariants ranking edge)
+
     let verifyStrictRankingWithInvariants timeoutMilliseconds (invariants: InvariantContext) internalEdges ranking =
         internalEdges
-        |> Array.map (verifyStrictRankingRuleWithInvariants timeoutMilliseconds invariants ranking)
+        |> mapInParallel (verifyStrictRankingRuleWithInvariants timeoutMilliseconds invariants ranking)
         |> Array.fold (fun result current ->
             match result, current with
             | Invalid, _
@@ -107,7 +173,11 @@ module Z3Backend =
     let verifyStrictRanking timeoutMilliseconds internalEdges ranking =
         verifyStrictRankingWithInvariants timeoutMilliseconds Map.empty internalEdges ranking
 
-    let verifyWeakRankingRuleWithInvariants timeoutMilliseconds (invariants: InvariantContext) (ranking: LinearRanking) (edge: Edge) =
+    let private verifyWeakRankingRuleWithInvariantsUncached
+        timeoutMilliseconds
+        (invariants: InvariantContext)
+        (ranking: LinearRanking)
+        (edge: Edge) =
         match
             LinearArithmetic.tryInstantiate ranking edge.Rule.Source.Arguments,
             LinearArithmetic.tryInstantiate ranking edge.Rule.Target.Arguments
@@ -133,6 +203,11 @@ module Z3Backend =
                 | Unknown reason -> Inconclusive reason
         | _ -> Inconclusive "ランキング関数を遷移引数へ適用できません。"
 
+    let verifyWeakRankingRuleWithInvariants timeoutMilliseconds (invariants: InvariantContext) (ranking: LinearRanking) (edge: Edge) =
+        let key = createCacheKey "weak-rule" timeoutMilliseconds None invariants ranking edge [||]
+        getOrAdd weakRuleCache key (fun () ->
+            verifyWeakRankingRuleWithInvariantsUncached timeoutMilliseconds invariants ranking edge)
+
     let verifyWeakRankingRule timeoutMilliseconds ranking edge =
         verifyWeakRankingRuleWithInvariants timeoutMilliseconds Map.empty ranking edge
 
@@ -142,7 +217,7 @@ module Z3Backend =
         | _ -> None
 
     /// ガードを満たす具体状態を取り出し、遷移前後の引数値をCEGIS用サンプルにする。
-    let trySampleRuleWithInvariants timeoutMilliseconds (invariants: InvariantContext) (edge: Edge) =
+    let private trySampleRuleWithInvariantsUncached timeoutMilliseconds (invariants: InvariantContext) (edge: Edge) =
         use context = new Context()
         let environment = Z3Encoding.createEnvironment context
         let guard = encodeEdgeCondition context environment invariants edge
@@ -174,11 +249,20 @@ module Z3Backend =
                 else Error "Z3モデルから遷移引数の整数値を取得できません。"
             | status -> Error(sprintf "予期しないZ3状態: %A" status)
 
+    let trySampleRuleWithInvariants timeoutMilliseconds (invariants: InvariantContext) (edge: Edge) =
+        let key = createCacheKey "sample" timeoutMilliseconds None invariants "" edge [||]
+        getOrAdd sampleCache key (fun () ->
+            trySampleRuleWithInvariantsUncached timeoutMilliseconds invariants edge)
+
     let trySampleRule timeoutMilliseconds edge =
         trySampleRuleWithInvariants timeoutMilliseconds Map.empty edge
 
     /// 候補の反例を返す。Noneは全辺で非負性と厳密減少が証明されたことを表す。
-    let tryFindStrictRankingCounterexampleWithInvariants timeoutMilliseconds (invariants: InvariantContext) (internalEdges: Edge array) (ranking: LinearRanking) =
+    let private tryFindStrictRankingCounterexampleWithInvariantsUncached
+        timeoutMilliseconds
+        (invariants: InvariantContext)
+        (internalEdges: Edge array)
+        (ranking: LinearRanking) =
         let rec inspect index =
             if index >= internalEdges.Length then Ok None
             else
@@ -227,11 +311,25 @@ module Z3Backend =
                 | _ -> Error "ランキング関数を遷移引数へ適用できません。"
         inspect 0
 
+    let tryFindStrictRankingCounterexampleWithInvariants
+        timeoutMilliseconds
+        (invariants: InvariantContext)
+        (internalEdges: Edge array)
+        (ranking: LinearRanking) =
+        let key = createCacheKey "strict-counterexample" timeoutMilliseconds None invariants ranking [||] internalEdges
+        getOrAdd strictCounterexampleCache key (fun () ->
+            tryFindStrictRankingCounterexampleWithInvariantsUncached timeoutMilliseconds invariants internalEdges ranking)
+
     let tryFindStrictRankingCounterexample timeoutMilliseconds internalEdges ranking =
         tryFindStrictRankingCounterexampleWithInvariants timeoutMilliseconds Map.empty internalEdges ranking
 
     /// 全辺の非負・非増加と、指定辺の厳密減少に対する最初の反例を返す。
-    let tryFindRemovalRankingCounterexampleWithInvariants timeoutMilliseconds strictEdgeIndex (invariants: InvariantContext) (internalEdges: Edge array) (ranking: LinearRanking) =
+    let private tryFindRemovalRankingCounterexampleWithInvariantsUncached
+        timeoutMilliseconds
+        strictEdgeIndex
+        (invariants: InvariantContext)
+        (internalEdges: Edge array)
+        (ranking: LinearRanking) =
         let rec inspect index =
             if index >= internalEdges.Length then Ok None
             else
@@ -280,6 +378,21 @@ module Z3Backend =
                         | status -> Error(sprintf "予期しないZ3状態: %A" status)
                 | _ -> Error "ランキング関数を遷移引数へ適用できません。"
         inspect 0
+
+    let tryFindRemovalRankingCounterexampleWithInvariants
+        timeoutMilliseconds
+        strictEdgeIndex
+        (invariants: InvariantContext)
+        (internalEdges: Edge array)
+        (ranking: LinearRanking) =
+        let key = createCacheKey "removal-counterexample" timeoutMilliseconds (Some strictEdgeIndex) invariants ranking [||] internalEdges
+        getOrAdd removalCounterexampleCache key (fun () ->
+            tryFindRemovalRankingCounterexampleWithInvariantsUncached
+                timeoutMilliseconds
+                strictEdgeIndex
+                invariants
+                internalEdges
+                ranking)
 
     let tryFindRemovalRankingCounterexample timeoutMilliseconds strictEdgeIndex internalEdges ranking =
         tryFindRemovalRankingCounterexampleWithInvariants timeoutMilliseconds strictEdgeIndex Map.empty internalEdges ranking

@@ -13,6 +13,12 @@ module RankingSynthesis =
     let private z3TimeoutMilliseconds = 1000
     let private cegisIterationLimit = 128
 
+    /// 独立した辺ごとのZ3問い合わせを並列化する。
+    /// 小さい配列では通常のmapを使い、並列化の固定費を避ける。
+    let private mapInParallel (mapping: 'a -> 'b) (values: 'a array) : 'b array =
+        if values.Length < 2 then Array.map mapping values
+        else Array.Parallel.map mapping values
+
     let private verifyStrictCandidate (invariants: InvariantContext) internalEdges candidate =
         Z3Backend.verifyStrictRankingWithInvariants z3TimeoutMilliseconds invariants internalEdges candidate = Valid
 
@@ -88,7 +94,7 @@ module RankingSynthesis =
             else
                 let initialSamples =
                     internalEdges
-                    |> Array.map (fun edge -> Z3Backend.trySampleRuleWithInvariants z3TimeoutMilliseconds invariants edge)
+                    |> mapInParallel (fun edge -> Z3Backend.trySampleRuleWithInvariants z3TimeoutMilliseconds invariants edge)
                 if initialSamples |> Array.exists Result.isError then None
                 else
                     let samples =
@@ -124,7 +130,7 @@ module RankingSynthesis =
             else
                 let initialSamples =
                     internalEdges
-                    |> Array.map (Z3Backend.trySampleRuleWithInvariants z3TimeoutMilliseconds invariants)
+                    |> mapInParallel (Z3Backend.trySampleRuleWithInvariants z3TimeoutMilliseconds invariants)
                 if initialSamples |> Array.exists Result.isError then None
                 else
                     [ 0 .. internalEdges.Length - 1 ]
@@ -156,7 +162,7 @@ module RankingSynthesis =
                                             SmtTrace.emit "cegis-accepted" [ "goal", box "removal"; "strictEdgeIndex", box strictEdgeIndex; "iteration", box iteration ]
                                             let classified =
                                                 internalEdges
-                                                |> Array.map (fun edge ->
+                                                |> mapInParallel (fun edge ->
                                                     match Z3Backend.verifyStrictRankingRuleWithInvariants z3TimeoutMilliseconds invariants candidate edge with
                                                     | SmtVerificationResult.Valid -> Some(edge, Strict)
                                                     | SmtVerificationResult.Invalid ->
@@ -268,7 +274,7 @@ module RankingSynthesis =
         (candidate: LinearRanking) =
         let classified =
             internalEdges
-            |> Array.map (fun edge ->
+            |> mapInParallel (fun edge ->
                 match Z3Backend.verifyStrictRankingRuleWithInvariants z3TimeoutMilliseconds invariants candidate edge with
                 | SmtVerificationResult.Valid -> Some(edge, Strict)
                 | SmtVerificationResult.Invalid ->
