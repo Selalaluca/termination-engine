@@ -12,6 +12,7 @@ module Analysis =
         let graph = Graph.create system
         let scc = Scc.analyseFromStart graph
         let cyclic = Components.findCyclic graph scc
+        let invariants = InvariantAnalysis.analyse graph scc
         let result =
             if cyclic.Length = 0 then Yes [||]
             else
@@ -22,7 +23,7 @@ module Analysis =
                     let proofs =
                         cyclic
                         |> Array.map (fun cyclicComponent ->
-                            match Ranking.tryFindWithEvidence cyclicComponent.InternalEdges with
+                            match Ranking.tryFindWithEvidenceAndInvariants invariants cyclicComponent.InternalEdges with
                             | Some(ranking, method, strictEdges, weakEdges) ->
                                 Some {
                                     Component = cyclicComponent
@@ -33,7 +34,7 @@ module Analysis =
                                     Levels = [||]
                                 }
                             | None ->
-                                Ranking.tryFindLexicographic cyclicComponent.InternalEdges
+                                Ranking.tryFindLexicographicWithInvariants invariants cyclicComponent.InternalEdges
                                 |> Option.bind (fun levels ->
                                     if levels.Length < 2 then None
                                     else

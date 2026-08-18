@@ -6,6 +6,18 @@ type LinearForm = {
     Coefficients: Map<string, bigint>
 }
 
+/// 制御位置の引数を基準にした線形不変条件。
+/// Coefficientsの添字は、その制御位置の状態引数の位置を表す。
+type LinearConstraint = {
+    InvariantConstant: bigint
+    InvariantCoefficients: bigint array
+    Relation: Comparison
+}
+
+/// 各制御位置で証明された不変条件の集合。
+/// MapのキーはGraphのLocationIdだが、型定義の依存を避けてintで保持する。
+type InvariantContext = Map<int, LinearConstraint list>
+
 module LinearArithmetic =
     let zero = { Constant = 0I; Coefficients = Map.empty }
 

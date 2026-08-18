@@ -49,11 +49,12 @@ F#側には期待する構文木、証明情報、または`YES`／`NO`／`MAYBE
 ## 使い方
 
 ```powershell
-dotnet run --project TerminationEngine.fsproj -- [-t] [-i] input.koat
+dotnet run --project TerminationEngine.fsproj -- [-t] [-i] [-s] input.koat
 ```
 
 - `-t`: 停止性判定時間と総処理時間を標準エラーへ表示する。
 - `-i`: 循環SCC、ランキング証明、非停止証拠などの詳細情報を表示する。
+- `-s`: SMT問い合わせとCEGIS過程を標準エラーへ表示する。SMT-LIB相当の制約、SAT／UNSAT／UNKNOWN、係数モデル、反例状態、反復番号、候補の採否を含む。
 - オプションなし: `YES`、`NO`、`MAYBE`の判定結果だけを表示する。
 
 最終的な出力：

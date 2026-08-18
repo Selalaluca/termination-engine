@@ -13,8 +13,8 @@ module RankingSynthesis =
     let private z3TimeoutMilliseconds = 1000
     let private cegisIterationLimit = 128
 
-    let private verifyStrictCandidate internalEdges candidate =
-        Z3Backend.verifyStrictRanking z3TimeoutMilliseconds internalEdges candidate = Valid
+    let private verifyStrictCandidate (invariants: InvariantContext) internalEdges candidate =
+        Z3Backend.verifyStrictRankingWithInvariants z3TimeoutMilliseconds invariants internalEdges candidate = Valid
 
     let private trySynthesizeFromSamples goal arity (samples: Z3Backend.RankingSample list array) : LinearRanking option =
         use context = new Context()
@@ -56,6 +56,11 @@ module RankingSynthesis =
         |> solver.MkMinimize
         |> ignore
         absolute constant |> solver.MkMinimize |> ignore
+        let goalText =
+            match goal with
+            | StrictOnAllEdges -> "strict-on-all-edges"
+            | WeakOnAllEdgesAndStrictAt index -> sprintf "weak-all-strict-edge-%d" index
+        SmtTrace.emit "smt-query" [ "goal", box goalText; "arity", box arity; "sampleCounts", box (samples |> Array.map List.length); "smtLib", box (solver.ToString()) ]
         match solver.Check() with
         | Status.SATISFIABLE ->
             let model = solver.Model
@@ -65,12 +70,15 @@ module RankingSynthesis =
                 | _ -> None
             match read constant, coefficients |> Array.map read |> Array.fold (fun state item -> Option.map2 Array.append state (item |> Option.map Array.singleton)) (Some [||]) with
             | Some constantValue, Some coefficientValues ->
+                SmtTrace.emit "smt-result" [ "goal", box goalText; "status", box "sat"; "constant", box (string constantValue); "coefficients", box (coefficientValues |> Array.map string) ]
                 Some ({ Constant = constantValue; Coefficients = coefficientValues }: LinearRanking)
-            | _ -> None
-        | _ -> None
+            | _ -> SmtTrace.emit "smt-result" [ "goal", box goalText; "status", box "model-read-failed" ]; None
+        | Status.UNSATISFIABLE -> SmtTrace.emit "smt-result" [ "goal", box goalText; "status", box "unsat" ]; None
+        | Status.UNKNOWN -> SmtTrace.emit "smt-result" [ "goal", box goalText; "status", box "unknown"; "reason", box solver.ReasonUnknown ]; None
+        | status -> SmtTrace.emit "smt-result" [ "goal", box goalText; "status", box (sprintf "%A" status) ]; None
 
     /// 係数を有限集合へ制限せず、Z3と反例検証を往復して一般線形ランキングを合成する。
-    let tryFindZ3Linear (internalEdges: Edge array) =
+    let tryFindZ3LinearWithInvariants (invariants: InvariantContext) (internalEdges: Edge array) =
         match Array.tryHead internalEdges with
         | None -> None
         | Some first ->
@@ -80,28 +88,33 @@ module RankingSynthesis =
             else
                 let initialSamples =
                     internalEdges
-                    |> Array.map (fun edge -> Z3Backend.trySampleRule z3TimeoutMilliseconds edge)
+                    |> Array.map (fun edge -> Z3Backend.trySampleRuleWithInvariants z3TimeoutMilliseconds invariants edge)
                 if initialSamples |> Array.exists Result.isError then None
                 else
                     let samples =
                         initialSamples
                         |> Array.map (function Ok(Some sample) -> [ sample ] | _ -> [])
                     let rec search iteration =
-                        if iteration >= cegisIterationLimit then None
+                        SmtTrace.emit "cegis-iteration" [ "goal", box "strict"; "iteration", box iteration; "sampleCounts", box (samples |> Array.map List.length) ]
+                        if iteration >= cegisIterationLimit then
+                            SmtTrace.emit "cegis-limit" [ "goal", box "strict"; "limit", box cegisIterationLimit ]
+                            None
                         else
                             match trySynthesizeFromSamples StrictOnAllEdges arity samples with
-                            | None -> None
+                            | None -> SmtTrace.emit "cegis-no-candidate" [ "goal", box "strict"; "iteration", box iteration ]; None
                             | Some candidate ->
-                                match Z3Backend.tryFindStrictRankingCounterexample z3TimeoutMilliseconds internalEdges candidate with
-                                | Ok None -> Some candidate
+                                SmtTrace.emit "cegis-candidate" [ "goal", box "strict"; "iteration", box iteration; "constant", box (string candidate.Constant); "coefficients", box (candidate.Coefficients |> Array.map string) ]
+                                match Z3Backend.tryFindStrictRankingCounterexampleWithInvariants z3TimeoutMilliseconds invariants internalEdges candidate with
+                                | Ok None -> SmtTrace.emit "cegis-accepted" [ "goal", box "strict"; "iteration", box iteration ]; Some candidate
                                 | Ok(Some(edgeIndex, sample)) ->
+                                    SmtTrace.emit "cegis-counterexample" [ "goal", box "strict"; "iteration", box iteration; "edgeIndex", box edgeIndex; "before", box (sample.BeforeArguments |> Array.map string); "after", box (sample.AfterArguments |> Array.map string) ]
                                     samples[edgeIndex] <- sample :: samples[edgeIndex]
                                     search (iteration + 1)
-                                | Error _ -> None
+                                | Error reason -> SmtTrace.emit "cegis-error" [ "goal", box "strict"; "iteration", box iteration; "reason", box reason ]; None
                     search 0
 
     /// 全辺で非増加となり、少なくとも指定した1辺で厳密減少する任意整数係数をCEGISで合成する。
-    let tryFindZ3RemovalLevel (internalEdges: Edge array) =
+    let tryFindZ3RemovalLevelWithInvariants (invariants: InvariantContext) (internalEdges: Edge array) =
         match Array.tryHead internalEdges with
         | None -> None
         | Some first ->
@@ -111,7 +124,7 @@ module RankingSynthesis =
             else
                 let initialSamples =
                     internalEdges
-                    |> Array.map (Z3Backend.trySampleRule z3TimeoutMilliseconds)
+                    |> Array.map (Z3Backend.trySampleRuleWithInvariants z3TimeoutMilliseconds invariants)
                 if initialSamples |> Array.exists Result.isError then None
                 else
                     [ 0 .. internalEdges.Length - 1 ]
@@ -124,24 +137,30 @@ module RankingSynthesis =
                                 initialSamples
                                 |> Array.map (function Ok(Some sample) -> [ sample ] | _ -> [])
                             let rec search iteration =
-                                if iteration >= cegisIterationLimit then None
+                                SmtTrace.emit "cegis-iteration" [ "goal", box "removal"; "strictEdgeIndex", box strictEdgeIndex; "iteration", box iteration; "sampleCounts", box (samples |> Array.map List.length) ]
+                                if iteration >= cegisIterationLimit then
+                                    SmtTrace.emit "cegis-limit" [ "goal", box "removal"; "strictEdgeIndex", box strictEdgeIndex; "limit", box cegisIterationLimit ]
+                                    None
                                 else
                                     match trySynthesizeFromSamples (WeakOnAllEdgesAndStrictAt strictEdgeIndex) arity samples with
-                                    | None -> None
+                                    | None -> SmtTrace.emit "cegis-no-candidate" [ "goal", box "removal"; "strictEdgeIndex", box strictEdgeIndex; "iteration", box iteration ]; None
                                     | Some candidate ->
-                                        match Z3Backend.tryFindRemovalRankingCounterexample z3TimeoutMilliseconds strictEdgeIndex internalEdges candidate with
-                                        | Error _ -> None
+                                        SmtTrace.emit "cegis-candidate" [ "goal", box "removal"; "strictEdgeIndex", box strictEdgeIndex; "iteration", box iteration; "constant", box (string candidate.Constant); "coefficients", box (candidate.Coefficients |> Array.map string) ]
+                                        match Z3Backend.tryFindRemovalRankingCounterexampleWithInvariants z3TimeoutMilliseconds strictEdgeIndex invariants internalEdges candidate with
+                                        | Error reason -> SmtTrace.emit "cegis-error" [ "goal", box "removal"; "strictEdgeIndex", box strictEdgeIndex; "iteration", box iteration; "reason", box reason ]; None
                                         | Ok(Some(edgeIndex, sample)) ->
+                                            SmtTrace.emit "cegis-counterexample" [ "goal", box "removal"; "strictEdgeIndex", box strictEdgeIndex; "iteration", box iteration; "edgeIndex", box edgeIndex; "before", box (sample.BeforeArguments |> Array.map string); "after", box (sample.AfterArguments |> Array.map string) ]
                                             samples[edgeIndex] <- sample :: samples[edgeIndex]
                                             search (iteration + 1)
                                         | Ok None ->
+                                            SmtTrace.emit "cegis-accepted" [ "goal", box "removal"; "strictEdgeIndex", box strictEdgeIndex; "iteration", box iteration ]
                                             let classified =
                                                 internalEdges
                                                 |> Array.map (fun edge ->
-                                                    match Z3Backend.verifyStrictRankingRule z3TimeoutMilliseconds candidate edge with
+                                                    match Z3Backend.verifyStrictRankingRuleWithInvariants z3TimeoutMilliseconds invariants candidate edge with
                                                     | SmtVerificationResult.Valid -> Some(edge, Strict)
                                                     | SmtVerificationResult.Invalid ->
-                                                        match Z3Backend.verifyWeakRankingRule z3TimeoutMilliseconds candidate edge with
+                                                        match Z3Backend.verifyWeakRankingRuleWithInvariants z3TimeoutMilliseconds invariants candidate edge with
                                                         | SmtVerificationResult.Valid -> Some(edge, Weak)
                                                         | _ -> None
                                                     | SmtVerificationResult.Inconclusive _ -> None)
@@ -159,6 +178,12 @@ module RankingSynthesis =
                                                         WeakEdges = weakEdges
                                                     }
                             search 0)
+
+    let tryFindZ3Linear internalEdges =
+        tryFindZ3LinearWithInvariants Map.empty internalEdges
+
+    let tryFindZ3RemovalLevel internalEdges =
+        tryFindZ3RemovalLevelWithInvariants Map.empty internalEdges
 
     let rec private enumerateCoefficientVectors arity =
         if arity = 0 then
@@ -270,7 +295,7 @@ module RankingSynthesis =
 
     /// 全内部辺で非負かつ厳密減少するxi+cまたは-xi+cを探す。
     /// 発見失敗は非停止の証拠ではなく、現在の候補集合では証明できないことだけを意味する。
-    let tryFindProjection (internalEdges: Edge array) =
+    let tryFindProjectionWithInvariants (invariants: InvariantContext) (internalEdges: Edge array) =
         // 最初の辺からarityを取得できるか判定し、各引数について正負の射影候補を列挙する。
         match Array.tryHead internalEdges with
         | None -> None
@@ -286,10 +311,13 @@ module RankingSynthesis =
                       | None -> () ]
             |> List.tryFind (fun candidate ->
                 RankingVerification.verifyProjection internalEdges candidate
-                && Z3Backend.verifyStrictRanking z3TimeoutMilliseconds internalEdges candidate = Valid)
+                && Z3Backend.verifyStrictRankingWithInvariants z3TimeoutMilliseconds invariants internalEdges candidate = Valid)
+
+    let tryFindProjection internalEdges =
+        tryFindProjectionWithInvariants Map.empty internalEdges
 
     /// 小さい係数ベクトルを順に具体化し、非負性の定数項と全辺での減少性を満たす候補を探す。
-    let tryFindGeneralLinear (internalEdges: Edge array) =
+    let tryFindGeneralLinearWithInvariants (invariants: InvariantContext) (internalEdges: Edge array) =
         match Array.tryHead internalEdges with
         | None -> None
         | Some first ->
@@ -302,9 +330,12 @@ module RankingSynthesis =
                     let candidate: LinearRanking =
                         { Constant = constant
                           Coefficients = Array.copy coefficients }
-                    if verifyStrictCandidate internalEdges candidate then
+                    if verifyStrictCandidate invariants internalEdges candidate then
                         Some candidate
                     else None)
+
+    let tryFindGeneralLinear internalEdges =
+        tryFindGeneralLinearWithInvariants Map.empty internalEdges
 
     /// 全辺非増加かつWeak辺だけでは循環できない一般線形候補を探す。
     /// 非負性の定数項を全内部辺のガードから合成できる候補だけを対象にする。
@@ -374,7 +405,7 @@ module RankingSynthesis =
                               WeakEdges = weakEdges }))
 
     /// Strict辺を段階的に除去し、残余の循環コアを次成分で順位付けする。
-    let tryFindLexicographic (internalEdges: Edge array) =
+    let tryFindLexicographicWithInvariants (invariants: InvariantContext) (internalEdges: Edge array) =
         let maximumDepth = 8
         let rec search depth levels remaining =
             let cyclic = RankingVerification.cyclicEdges remaining
@@ -383,7 +414,7 @@ module RankingSynthesis =
             else
                 match tryFindRemovalLevel cyclic with
                 | None ->
-                    match tryFindZ3RemovalLevel cyclic with
+                    match tryFindZ3RemovalLevelWithInvariants invariants cyclic with
                     | None -> None
                     | Some level ->
                         let next = RankingVerification.cyclicEdges level.WeakEdges
@@ -395,19 +426,25 @@ module RankingSynthesis =
                     else search (depth + 1) (level :: levels) next
         search 0 [] internalEdges
 
-    let tryFindWithEvidence internalEdges =
-        match tryFindProjection internalEdges with
+    let tryFindLexicographic internalEdges =
+        tryFindLexicographicWithInvariants Map.empty internalEdges
+
+    let tryFindWithEvidenceAndInvariants (invariants: InvariantContext) internalEdges =
+        match tryFindProjectionWithInvariants invariants internalEdges with
         | Some ranking -> Some(ranking, Projection, internalEdges, [||])
         | None ->
-            match tryFindGeneralLinear internalEdges with
+            match tryFindGeneralLinearWithInvariants invariants internalEdges with
             | Some ranking -> Some(ranking, GeneralLinear, internalEdges, [||])
             | None ->
-                match tryFindZ3Linear internalEdges with
+                match tryFindZ3LinearWithInvariants invariants internalEdges with
                 | Some ranking -> Some(ranking, Z3Linear, internalEdges, [||])
                 | None ->
                     tryFindTransitionRemoval internalEdges
                     |> Option.map (fun (ranking, strictEdges, weakEdges) ->
                         ranking, TransitionRemoval, strictEdges, weakEdges)
+
+    let tryFindWithEvidence internalEdges =
+        tryFindWithEvidenceAndInvariants Map.empty internalEdges
 
     /// 高速なアフィン射影を先に試し、失敗した場合だけ一般線形候補を探索する。
     let tryFind internalEdges =

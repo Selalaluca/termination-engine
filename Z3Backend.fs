@@ -9,6 +9,42 @@ module Z3Backend =
         AfterArguments: bigint array
     }
 
+    let private encodeComparison (context: Context) comparison left right =
+        match comparison with
+        | Eq -> context.MkEq(left, right)
+        | NotEq -> context.MkNot(context.MkEq(left, right))
+        | Lt -> context.MkLt(left, right)
+        | Le -> context.MkLe(left, right)
+        | Gt -> context.MkGt(left, right)
+        | Ge -> context.MkGe(left, right)
+
+    let private encodeInvariant context environment (constraintValue: LinearConstraint) arguments =
+        let ranking: LinearRanking =
+            { Constant = constraintValue.InvariantConstant
+              Coefficients = Array.copy constraintValue.InvariantCoefficients }
+        match LinearArithmetic.tryInstantiate ranking arguments with
+        | None -> Error "不変条件を遷移引数へ適用できません。"
+        | Some form ->
+            let encoded = Z3Encoding.encodeLinearForm environment form
+            Ok(encodeComparison context constraintValue.Relation encoded (context.MkInt(0)))
+
+    let private encodeEdgeCondition (context: Context) (environment: Z3Encoding.Environment) (invariants: InvariantContext) (edge: Edge) =
+        let guardResult =
+            match edge.Rule.Guard with
+            | None -> Ok(context.MkTrue())
+            | Some value -> Z3Encoding.encodeBool environment value
+        let invariantResults =
+            invariants
+            |> Map.tryFind edge.Source
+            |> Option.defaultValue []
+            |> List.map (fun constraintValue -> encodeInvariant context environment constraintValue edge.Rule.Source.Arguments)
+        match guardResult, invariantResults |> List.tryPick (function Error reason -> Some reason | Ok _ -> None) with
+        | Error reason, _ -> Error reason
+        | _, Some reason -> Error reason
+        | Ok guard, None ->
+            let encodedInvariants = invariantResults |> List.choose (function Ok value -> Some value | Error _ -> None)
+            Ok(context.MkAnd(Array.append [| guard |] (List.toArray encodedInvariants)))
+
     let private check (context: Context) timeoutMilliseconds (constraintExpression: BoolExpr) =
         use solver = context.MkSolver()
         let parameters = context.MkParams()
@@ -21,7 +57,7 @@ module Z3Backend =
         | Status.UNKNOWN -> Unknown solver.ReasonUnknown
         | status -> Unknown(sprintf "予期しないZ3状態: %A" status)
 
-    let verifyStrictRankingRule timeoutMilliseconds (ranking: LinearRanking) (edge: Edge) =
+    let verifyStrictRankingRuleWithInvariants timeoutMilliseconds (invariants: InvariantContext) (ranking: LinearRanking) (edge: Edge) =
         match
             LinearArithmetic.tryInstantiate ranking edge.Rule.Source.Arguments,
             LinearArithmetic.tryInstantiate ranking edge.Rule.Target.Arguments
@@ -29,10 +65,7 @@ module Z3Backend =
         | Some before, Some after ->
             use context = new Context()
             let environment = Z3Encoding.createEnvironment context
-            let guard =
-                match edge.Rule.Guard with
-                | None -> Ok(context.MkTrue())
-                | Some value -> Z3Encoding.encodeBool environment value
+            let guard = encodeEdgeCondition context environment invariants edge
             match guard with
             | Error reason -> Inconclusive reason
             | Ok encodedGuard ->
@@ -57,9 +90,9 @@ module Z3Backend =
                 | _, Unknown reason -> Inconclusive reason
         | _ -> Inconclusive "ランキング関数を遷移引数へ適用できません。"
 
-    let verifyStrictRanking timeoutMilliseconds internalEdges ranking =
+    let verifyStrictRankingWithInvariants timeoutMilliseconds (invariants: InvariantContext) internalEdges ranking =
         internalEdges
-        |> Array.map (verifyStrictRankingRule timeoutMilliseconds ranking)
+        |> Array.map (verifyStrictRankingRuleWithInvariants timeoutMilliseconds invariants ranking)
         |> Array.fold (fun result current ->
             match result, current with
             | Invalid, _
@@ -68,7 +101,13 @@ module Z3Backend =
             | _, Inconclusive reason -> Inconclusive reason
             | Valid, Valid -> Valid) Valid
 
-    let verifyWeakRankingRule timeoutMilliseconds (ranking: LinearRanking) (edge: Edge) =
+    let verifyStrictRankingRule timeoutMilliseconds ranking edge =
+        verifyStrictRankingRuleWithInvariants timeoutMilliseconds Map.empty ranking edge
+
+    let verifyStrictRanking timeoutMilliseconds internalEdges ranking =
+        verifyStrictRankingWithInvariants timeoutMilliseconds Map.empty internalEdges ranking
+
+    let verifyWeakRankingRuleWithInvariants timeoutMilliseconds (invariants: InvariantContext) (ranking: LinearRanking) (edge: Edge) =
         match
             LinearArithmetic.tryInstantiate ranking edge.Rule.Source.Arguments,
             LinearArithmetic.tryInstantiate ranking edge.Rule.Target.Arguments
@@ -76,10 +115,7 @@ module Z3Backend =
         | Some before, Some after ->
             use context = new Context()
             let environment = Z3Encoding.createEnvironment context
-            let guard =
-                match edge.Rule.Guard with
-                | None -> Ok(context.MkTrue())
-                | Some value -> Z3Encoding.encodeBool environment value
+            let guard = encodeEdgeCondition context environment invariants edge
             match guard with
             | Error reason -> Inconclusive reason
             | Ok encodedGuard ->
@@ -97,19 +133,19 @@ module Z3Backend =
                 | Unknown reason -> Inconclusive reason
         | _ -> Inconclusive "ランキング関数を遷移引数へ適用できません。"
 
+    let verifyWeakRankingRule timeoutMilliseconds ranking edge =
+        verifyWeakRankingRuleWithInvariants timeoutMilliseconds Map.empty ranking edge
+
     let private tryModelInteger (model: Model) (expression: ArithExpr) =
         match model.Evaluate(expression, true) with
         | :? IntNum as value -> Some(BigInteger.Parse(value.ToString()))
         | _ -> None
 
     /// ガードを満たす具体状態を取り出し、遷移前後の引数値をCEGIS用サンプルにする。
-    let trySampleRule timeoutMilliseconds (edge: Edge) =
+    let trySampleRuleWithInvariants timeoutMilliseconds (invariants: InvariantContext) (edge: Edge) =
         use context = new Context()
         let environment = Z3Encoding.createEnvironment context
-        let guard =
-            match edge.Rule.Guard with
-            | None -> Ok(context.MkTrue())
-            | Some value -> Z3Encoding.encodeBool environment value
+        let guard = encodeEdgeCondition context environment invariants edge
         let before = edge.Rule.Source.Arguments |> List.map (Z3Encoding.encodeInt environment)
         let after = edge.Rule.Target.Arguments |> List.map (Z3Encoding.encodeInt environment)
         match guard, before |> List.tryPick (function Error error -> Some error | _ -> None), after |> List.tryPick (function Error error -> Some error | _ -> None) with
@@ -138,8 +174,11 @@ module Z3Backend =
                 else Error "Z3モデルから遷移引数の整数値を取得できません。"
             | status -> Error(sprintf "予期しないZ3状態: %A" status)
 
+    let trySampleRule timeoutMilliseconds edge =
+        trySampleRuleWithInvariants timeoutMilliseconds Map.empty edge
+
     /// 候補の反例を返す。Noneは全辺で非負性と厳密減少が証明されたことを表す。
-    let tryFindStrictRankingCounterexample timeoutMilliseconds (internalEdges: Edge array) (ranking: LinearRanking) =
+    let tryFindStrictRankingCounterexampleWithInvariants timeoutMilliseconds (invariants: InvariantContext) (internalEdges: Edge array) (ranking: LinearRanking) =
         let rec inspect index =
             if index >= internalEdges.Length then Ok None
             else
@@ -151,10 +190,7 @@ module Z3Backend =
                 | Some before, Some after ->
                     use context = new Context()
                     let environment = Z3Encoding.createEnvironment context
-                    let guard =
-                        match edge.Rule.Guard with
-                        | None -> Ok(context.MkTrue())
-                        | Some value -> Z3Encoding.encodeBool environment value
+                    let guard = encodeEdgeCondition context environment invariants edge
                     let sourceArguments = edge.Rule.Source.Arguments |> List.map (Z3Encoding.encodeInt environment)
                     let targetArguments = edge.Rule.Target.Arguments |> List.map (Z3Encoding.encodeInt environment)
                     match guard, sourceArguments |> List.tryPick (function Error error -> Some error | _ -> None), targetArguments |> List.tryPick (function Error error -> Some error | _ -> None) with
@@ -191,8 +227,11 @@ module Z3Backend =
                 | _ -> Error "ランキング関数を遷移引数へ適用できません。"
         inspect 0
 
+    let tryFindStrictRankingCounterexample timeoutMilliseconds internalEdges ranking =
+        tryFindStrictRankingCounterexampleWithInvariants timeoutMilliseconds Map.empty internalEdges ranking
+
     /// 全辺の非負・非増加と、指定辺の厳密減少に対する最初の反例を返す。
-    let tryFindRemovalRankingCounterexample timeoutMilliseconds strictEdgeIndex (internalEdges: Edge array) (ranking: LinearRanking) =
+    let tryFindRemovalRankingCounterexampleWithInvariants timeoutMilliseconds strictEdgeIndex (invariants: InvariantContext) (internalEdges: Edge array) (ranking: LinearRanking) =
         let rec inspect index =
             if index >= internalEdges.Length then Ok None
             else
@@ -204,10 +243,7 @@ module Z3Backend =
                 | Some before, Some after ->
                     use context = new Context()
                     let environment = Z3Encoding.createEnvironment context
-                    let guard =
-                        match edge.Rule.Guard with
-                        | None -> Ok(context.MkTrue())
-                        | Some value -> Z3Encoding.encodeBool environment value
+                    let guard = encodeEdgeCondition context environment invariants edge
                     let sourceArguments = edge.Rule.Source.Arguments |> List.map (Z3Encoding.encodeInt environment)
                     let targetArguments = edge.Rule.Target.Arguments |> List.map (Z3Encoding.encodeInt environment)
                     match guard, sourceArguments |> List.tryPick (function Error error -> Some error | _ -> None), targetArguments |> List.tryPick (function Error error -> Some error | _ -> None) with
@@ -244,3 +280,6 @@ module Z3Backend =
                         | status -> Error(sprintf "予期しないZ3状態: %A" status)
                 | _ -> Error "ランキング関数を遷移引数へ適用できません。"
         inspect 0
+
+    let tryFindRemovalRankingCounterexample timeoutMilliseconds strictEdgeIndex internalEdges ranking =
+        tryFindRemovalRankingCounterexampleWithInvariants timeoutMilliseconds strictEdgeIndex Map.empty internalEdges ranking
