@@ -36,7 +36,9 @@ module Analysis =
                             | None ->
                                 Ranking.tryFindLexicographicWithInvariants invariants cyclicComponent.InternalEdges
                                 |> Option.bind (fun levels ->
-                                    if levels.Length < 2 then None
+                                    // 不変条件由来の遷移除去でも、1段で残余の循環が消える
+                                    // なら有効な単一ランキング証明になっている。
+                                    if Array.isEmpty levels then None
                                     else
                                         let first = levels[0]
                                         Some {

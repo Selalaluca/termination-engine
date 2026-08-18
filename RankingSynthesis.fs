@@ -202,6 +202,109 @@ module RankingSynthesis =
     let private coefficientWeight coefficients =
         coefficients |> Array.sumBy abs
 
+    /// 不変条件の線形式から、ランキング候補を作る。
+    ///
+    /// Gt/Ge は式そのものを、Le/Lt は符号反転した式を候補にする。
+    /// 整数上の境界を使った0以上版も併せて生成するため、例えば
+    ///   r + 1 > 0
+    /// から r も候補になる。
+    let private invariantRankingCandidates
+        (invariants: InvariantContext)
+        (internalEdges: Edge array) =
+        let variants constraintValue =
+            let coefficients = Array.copy constraintValue.InvariantCoefficients
+            let raw: LinearRanking =
+                { Constant = constraintValue.InvariantConstant
+                  Coefficients = coefficients }
+            let normalized: LinearRanking option =
+                match constraintValue.Relation with
+                | Gt ->
+                    Some ({
+                        Constant = constraintValue.InvariantConstant - 1I
+                        Coefficients = Array.copy coefficients
+                    }: LinearRanking)
+                | Ge -> Some raw
+                | Le ->
+                    Some ({
+                        Constant = -constraintValue.InvariantConstant
+                        Coefficients = coefficients |> Array.map (fun value -> -value)
+                    }: LinearRanking)
+                | Lt ->
+                    Some ({
+                        Constant = -constraintValue.InvariantConstant - 1I
+                        Coefficients = coefficients |> Array.map (fun value -> -value)
+                    }: LinearRanking)
+                | Eq
+                | NotEq -> None
+            match normalized with
+            | Some value -> [ raw; value ]
+            | None -> [ raw ]
+
+        match Array.tryHead internalEdges with
+        | None -> Seq.empty
+        | Some first ->
+            let arity = first.Rule.Source.Arguments.Length
+            internalEdges
+            |> Array.collect (fun edge ->
+                invariants
+                |> Map.tryFind edge.Source
+                |> Option.defaultValue []
+                |> List.toArray)
+            |> Seq.collect variants
+            |> Seq.filter (fun candidate ->
+                candidate.Coefficients.Length = arity
+                && Array.exists ((<>) 0I) candidate.Coefficients)
+            |> Seq.distinct
+
+    let private invariantCandidateMethod (candidate: LinearRanking) =
+        if supportSize candidate.Coefficients = 1
+           && coefficientWeight candidate.Coefficients = 1I then
+            Projection
+        else GeneralLinear
+
+    let private tryClassifyRemovalCandidate
+        (invariants: InvariantContext)
+        (internalEdges: Edge array)
+        (candidate: LinearRanking) =
+        let classified =
+            internalEdges
+            |> Array.map (fun edge ->
+                match Z3Backend.verifyStrictRankingRuleWithInvariants z3TimeoutMilliseconds invariants candidate edge with
+                | SmtVerificationResult.Valid -> Some(edge, Strict)
+                | SmtVerificationResult.Invalid ->
+                    match Z3Backend.verifyWeakRankingRuleWithInvariants z3TimeoutMilliseconds invariants candidate edge with
+                    | SmtVerificationResult.Valid -> Some(edge, Weak)
+                    | _ -> None
+                | SmtVerificationResult.Inconclusive _ -> None)
+        if classified |> Array.exists Option.isNone then None
+        else
+            let values = classified |> Array.choose id
+            let strictEdges = values |> Array.choose (fun (edge, kind) -> if kind = Strict then Some edge else None)
+            let weakEdges = values |> Array.choose (fun (edge, kind) -> if kind = Weak then Some edge else None)
+            if Array.isEmpty strictEdges then None
+            else
+                Some {
+                    Ranking = candidate
+                    Method = invariantCandidateMethod candidate
+                    StrictEdges = strictEdges
+                    WeakEdges = weakEdges
+                }
+
+    /// 不変条件由来の候補を、CEGISより先にランキングとして検証する。
+    let private tryFindInvariantRankingWithInvariants
+        (invariants: InvariantContext)
+        (internalEdges: Edge array) =
+        invariantRankingCandidates invariants internalEdges
+        |> Seq.tryFind (fun candidate ->
+            Z3Backend.verifyStrictRankingWithInvariants z3TimeoutMilliseconds invariants internalEdges candidate = Valid)
+
+    /// 不変条件由来の候補を、CEGISより先に除去ランキングとして検証する。
+    let private tryFindInvariantRemovalLevelWithInvariants
+        (invariants: InvariantContext)
+        (internalEdges: Edge array) =
+        invariantRankingCandidates invariants internalEdges
+        |> Seq.tryPick (tryClassifyRemovalCandidate invariants internalEdges)
+
     /// 一般線形ランキング用の小さい係数ベクトルを、単純な候補から順に列挙する。
     /// arity制限は候補数の指数的増加を抑えるためで、超過時は安全側に候補なしとする。
     let generateCoefficientVectors arity =
@@ -412,18 +515,19 @@ module RankingSynthesis =
             if Array.isEmpty cyclic then Some(levels |> List.rev |> List.toArray)
             elif depth >= maximumDepth then None
             else
-                match tryFindRemovalLevel cyclic with
-                | None ->
-                    match tryFindZ3RemovalLevelWithInvariants invariants cyclic with
-                    | None -> None
-                    | Some level ->
-                        let next = RankingVerification.cyclicEdges level.WeakEdges
-                        if next.Length >= cyclic.Length then None
-                        else search (depth + 1) (level :: levels) next
-                | Some level ->
+                let continueWith (level: LexicographicLevel) =
                     let next = RankingVerification.cyclicEdges level.WeakEdges
                     if next.Length >= cyclic.Length then None
                     else search (depth + 1) (level :: levels) next
+                match tryFindRemovalLevel cyclic with
+                | Some level -> continueWith level
+                | None ->
+                    match tryFindInvariantRemovalLevelWithInvariants invariants cyclic with
+                    | Some level -> continueWith level
+                    | None ->
+                        match tryFindZ3RemovalLevelWithInvariants invariants cyclic with
+                        | Some level -> continueWith level
+                        | None -> None
         search 0 [] internalEdges
 
     let tryFindLexicographic internalEdges =
@@ -433,15 +537,18 @@ module RankingSynthesis =
         match tryFindProjectionWithInvariants invariants internalEdges with
         | Some ranking -> Some(ranking, Projection, internalEdges, [||])
         | None ->
-            match tryFindGeneralLinearWithInvariants invariants internalEdges with
-            | Some ranking -> Some(ranking, GeneralLinear, internalEdges, [||])
+            match tryFindInvariantRankingWithInvariants invariants internalEdges with
+            | Some ranking -> Some(ranking, invariantCandidateMethod ranking, internalEdges, [||])
             | None ->
-                match tryFindZ3LinearWithInvariants invariants internalEdges with
-                | Some ranking -> Some(ranking, Z3Linear, internalEdges, [||])
+                match tryFindGeneralLinearWithInvariants invariants internalEdges with
+                | Some ranking -> Some(ranking, GeneralLinear, internalEdges, [||])
                 | None ->
-                    tryFindTransitionRemoval internalEdges
-                    |> Option.map (fun (ranking, strictEdges, weakEdges) ->
-                        ranking, TransitionRemoval, strictEdges, weakEdges)
+                    match tryFindZ3LinearWithInvariants invariants internalEdges with
+                    | Some ranking -> Some(ranking, Z3Linear, internalEdges, [||])
+                    | None ->
+                        tryFindTransitionRemoval internalEdges
+                        |> Option.map (fun (ranking, strictEdges, weakEdges) ->
+                            ranking, TransitionRemoval, strictEdges, weakEdges)
 
     let tryFindWithEvidence internalEdges =
         tryFindWithEvidenceAndInvariants Map.empty internalEdges
