@@ -323,6 +323,87 @@ let unitTests = [
         let system = parseTestFixture (Path.Combine("analysis", "weak-only-cycle.koat"))
         let _, _, result = Analysis.analyse system
         match result with Maybe _ -> () | _ -> failwith "weak-only cycle was unsafely accepted"
+    "lexicographic ranking proves nested loops", fun () ->
+        let system = parseTestFixture (Path.Combine("termination", "nested-two-level.koat"))
+        let graph, _, result = Analysis.analyse system
+        match result with
+        | Yes [| proof |] ->
+            require (proof.Method = Lexicographic) "nested loop did not use a lexicographic proof"
+            require (proof.Levels.Length = 2) "nested loop has the wrong lexicographic depth"
+            require (proof.Levels[0].Ranking.Coefficients = [| 1I; 0I |]) "outer ranking is not i"
+            require (proof.Levels[1].Ranking.Coefficients = [| 0I; 1I |]) "inner ranking is not j"
+            require ((Report.render graph result).Contains("ranking method: lexicographic")) "report omitted lexicographic evidence"
+        | _ -> failwith "nested loop was not proven by a lexicographic ranking"
+    "four-level lexicographic ranking", fun () ->
+        let system = parseTestFixture (Path.Combine("termination", "nested-four-level.koat"))
+        let _, _, result = Analysis.analyse system
+        match result with
+        | Yes [| proof |] ->
+            require (proof.Method = Lexicographic) "four-level loop did not use a lexicographic proof"
+            require (proof.Levels.Length = 4) "four-level loop has the wrong lexicographic depth"
+            let expected =
+                [| [| 1I; 0I; 0I; 0I |]
+                   [| 0I; 1I; 0I; 0I |]
+                   [| 0I; 0I; 1I; 0I |]
+                   [| 0I; 0I; 0I; 1I |] |]
+            require
+                (Array.map (fun (level: LexicographicLevel) -> level.Ranking.Coefficients) proof.Levels = expected)
+                "four-level ranking components are incorrect"
+        | _ -> failwith "four-level loop was not proven by a lexicographic ranking"
+    "eight-level lexicographic ranking", fun () ->
+        let system = parseTestFixture (Path.Combine("termination", "nested-eight-level.koat"))
+        let _, _, result = Analysis.analyse system
+        match result with
+        | Yes [| proof |] ->
+            require (proof.Method = Lexicographic) "eight-level loop did not use a lexicographic proof"
+            require (proof.Levels.Length = 8) "eight-level loop has the wrong lexicographic depth"
+            let expected =
+                Array.init 8 (fun index ->
+                    Array.init 8 (fun coefficientIndex ->
+                        if index = coefficientIndex then 1I else 0I))
+            require
+                (Array.map (fun (level: LexicographicLevel) -> level.Ranking.Coefficients) proof.Levels = expected)
+                "eight-level ranking components are incorrect"
+        | _ -> failwith "eight-level loop was not proven by a lexicographic ranking"
+    "lexicographic ranking with independent bounds", fun () ->
+        let system = parseTestFixture (Path.Combine("termination", "nested-independent-bounds.koat"))
+        let _, _, result = Analysis.analyse system
+        match result with
+        | Yes [| proof |] ->
+            require (proof.Method = Lexicographic) "independent-bound loop did not use a lexicographic proof"
+            require (proof.Levels.Length = 2) "independent-bound loop has the wrong lexicographic depth"
+            require (proof.Levels[0].Ranking.Coefficients = [| 0I; 0I; 1I; 0I |]) "outer counter i was not ranked first"
+            require (proof.Levels[1].Ranking.Coefficients = [| 0I; 0I; 0I; 1I |]) "inner counter j was not ranked second"
+        | _ -> failwith "independent-bound loop was not proven by a lexicographic ranking"
+    "invariant-derived lexicographic removal level", fun () ->
+        let system = parseTestFixture (Path.Combine("analysis", "z3-lexicographic-ranking.koat"))
+        let graph, _, result = Analysis.analyse system
+        let internalEdges =
+            Components.findCyclic graph (Scc.analyseFromStart graph)
+            |> Array.exactlyOne
+            |> fun cyclicComponent -> cyclicComponent.InternalEdges
+        match result with
+        | Yes [| proof |] ->
+            require (proof.Method = Lexicographic) "Z3 removal fixture did not use a lexicographic proof"
+            require (proof.Levels.Length = 2) "Z3 removal fixture has the wrong lexicographic depth"
+            require
+                (proof.Levels[0].Ranking.Coefficients = [| 3I; 2I |])
+                "the invariant-derived first level has the wrong coefficients"
+            require (proof.Levels[0].Method = GeneralLinear) "first lexicographic level was not derived from an invariant"
+            require
+                (proof.Levels[0].Ranking.Coefficients |> Array.exists (fun coefficient -> abs coefficient > 1I))
+                "the invariant-derived level did not preserve the unrestricted coefficient"
+            require
+                ((Report.render graph result).Contains("level 1 method: general-linear"))
+                "report omitted the invariant-derived lexicographic level"
+            match RankingSynthesis.tryFindZ3RemovalLevel internalEdges with
+            | Some level ->
+                require (level.Method = Z3Linear) "direct Z3 removal synthesis no longer works"
+                require
+                    (level.Ranking.Coefficients |> Array.exists (fun coefficient -> abs coefficient > 1I))
+                    "direct Z3 removal synthesis did not require an unrestricted coefficient"
+            | None -> failwith "direct Z3 removal synthesis failed"
+        | _ -> failwith "the required lexicographic ranking was not synthesized"
     "cycle-dependent lower bound proves decreasing y", fun () ->
         let system = parseTestFixture (Path.Combine("analysis", "cycle-dependent-lower-bound.koat"))
         let _, _, result = Analysis.analyse system
@@ -396,8 +477,22 @@ let fixtureTests =
             require (actual = expected) $"expected {expected}, but got {actual}")
 
 let terminationScenarioExpectations = [
-    "nested-two-level.koat", "MAYBE"
-    "nested-three-level.koat", "MAYBE"
+    "nested-two-level.koat", "YES"
+    "nested-three-level.koat", "YES"
+    "nested-four-level.koat", "YES"
+    "nested-eight-level.koat", "YES"
+    "nested-independent-bounds.koat", "YES"
+    "user-nested-loop.koat", "YES"
+    "fsharp-simple-single-loop.koat", "YES"
+    "fsharp-cegis-single-loop.koat", "YES"
+    "fsharp-simple-double-loop.koat", "YES"
+    "fsharp-cegis-double-loop.koat", "YES"
+    "fsharp-simple-one-plus-double.koat", "YES"
+    "fsharp-cegis-one-double-one.koat", "YES"
+    "fsharp-count-up-loop.koat", "YES"
+    "fsharp-independent-double-loop.koat", "YES"
+    "fsharp-branching-loops.koat", "YES"
+    "fsharp-mutual-recursion.koat", "YES"
     "tail-recursion-terminating.koat", "YES"
     "tail-recursion-nonterminating.koat", "NO"
     "mutual-recursion-terminating.koat", "YES"

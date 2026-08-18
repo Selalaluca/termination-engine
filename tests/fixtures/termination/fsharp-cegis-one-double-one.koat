@@ -1,0 +1,25 @@
+# F#:
+# let oneDoubleOne n =
+#   let mutable i = n
+#   while i > 0 do i <- i - 1
+#   let mutable x, y = n, n
+#   while x > 0 do
+#     if branch then x <- x - 2; y <- y + 3
+#     else x <- x + 1; y <- y - 2
+#   let mutable k = n
+#   while k > 0 do k <- k - 1
+(GOAL TERMINATION)
+(STARTTERM (FUNCTIONSYMBOLS main))
+(VAR n i x y k)
+(RULES
+  main(n) -> first(n,n)
+  first(n,i) -> first(n,i - 1) [i > 0]
+  first(n,i) -> a(n,n,n) [i <= 0]
+  a(n,x,y) -> a(n,x - 2,y + 3) [x > 0 && 3*x + 2*y >= 0]
+  a(n,x,y) -> b(n,x + 1,y - 2) [x > 0 && y > 0 && 3*x + 2*y >= 0]
+  a(n,x,y) -> last(n,n) [x <= 0]
+  b(n,x,y) -> a(n,x,y) [x > 0 && y > 0 && 3*x + 2*y >= 0]
+  b(n,x,y) -> last(n,n) [x <= 0]
+  last(n,k) -> last(n,k - 1) [k > 0]
+  last(n,k) -> done(n,k) [k <= 0]
+)

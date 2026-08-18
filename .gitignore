@@ -4,6 +4,7 @@
 !/Analysis.fs
 !/Components.fs
 !/ExpressionAnalysis.fs
+!/InvariantAnalysis.fs
 !/Graph.fs
 !/KoatLexer.fsl
 !/KoatGrammar.fsy
@@ -18,6 +19,7 @@
 !/Report.fs
 !/Scc.fs
 !/Smt.fs
+!/SmtTrace.fs
 !/Syntax.fs
 !/Z3Backend.fs
 !/Z3Encoding.fs

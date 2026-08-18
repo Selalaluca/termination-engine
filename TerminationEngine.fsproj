@@ -27,8 +27,10 @@
     <Compile Include="RankingCertificate.fs" />
     <Compile Include="LinearArithmetic.fs" />
     <Compile Include="Smt.fs" />
+    <Compile Include="SmtTrace.fs" />
     <Compile Include="Z3Encoding.fs" />
     <Compile Include="Z3Backend.fs" />
+    <Compile Include="InvariantAnalysis.fs" />
     <Compile Include="RankingVerification.fs" />
     <Compile Include="RankingSynthesis.fs" />
     <Compile Include="Ranking.fs" />

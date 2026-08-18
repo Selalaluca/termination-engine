@@ -1,0 +1,17 @@
+# F#:
+# let simpleDouble n =
+#   let mutable i = n
+#   while i > 0 do
+#     let mutable j = i
+#     while j > 0 do j <- j - 1
+#     i <- i - 1
+(GOAL TERMINATION)
+(STARTTERM (FUNCTIONSYMBOLS main))
+(VAR n i j)
+(RULES
+  main(n) -> outer(n,0)
+  outer(i,j) -> inner(i,i) [i > 0]
+  outer(i,j) -> done(i,j) [i <= 0]
+  inner(i,j) -> inner(i,j - 1) [j > 0]
+  inner(i,j) -> outer(i - 1,j) [j <= 0]
+)

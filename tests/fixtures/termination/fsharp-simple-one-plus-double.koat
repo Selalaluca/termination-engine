@@ -1,0 +1,21 @@
+# F#:
+# let oneThenDouble n =
+#   let mutable i = n
+#   while i > 0 do i <- i - 1
+#   let mutable b = n
+#   while b > 0 do
+#     let mutable c = b
+#     while c > 0 do c <- c - 1
+#     b <- b - 1
+(GOAL TERMINATION)
+(STARTTERM (FUNCTIONSYMBOLS main))
+(VAR n i b c)
+(RULES
+  main(n) -> first(n,n)
+  first(n,i) -> first(n,i - 1) [i > 0]
+  first(n,i) -> outer(n,n,0) [i <= 0]
+  outer(n,b,c) -> inner(n,b,b) [b > 0]
+  outer(n,b,c) -> done(n,b,c) [b <= 0]
+  inner(n,b,c) -> inner(n,b,c - 1) [c > 0]
+  inner(n,b,c) -> outer(n,b - 1,c) [c <= 0]
+)

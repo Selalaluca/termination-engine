@@ -1,9 +1,12 @@
 # termination-engine
 
-KoAT形式の整数遷移系を読み込み、停止性を解析するためのF#プロジェクト。
+KoAT形式の整数遷移系を読み込み、停止性を解析するF#プログラムです。
 
-FsLex/FsYaccによるKoATパーサーと意味検査、および開始位置から到達可能な制御フローのSCC分解を実装している。
-現在は、閉路がない場合に加え、すべての到達可能な循環SCCにアフィン射影ランキング関数を発見できた場合も`YES`とする。ガードなしで全域的に定義された自己ループへ同種の経路で到達できれば`NO`、どちらも証明できない循環は`MAYBE`と出力する。
+## 判定
+
+- YES: 到達可能なすべての循環SCCの停止を証明
+- NO: 非停止の具体的な証拠を発見
+- MAYBE: 証明できない循環SCCが残った
 
 ## 必要環境
 
@@ -11,247 +14,122 @@ FsLex/FsYaccによるKoATパーサーと意味検査、および開始位置か�
 - FsLexYacc 11.4.0
 - Microsoft.Z3 4.12.2
 
-## ビルド
-
-```powershell
-dotnet build TerminationEngine.fsproj
-```
-
-FsLex/FsYaccがビルド時に次のファイルからLexerとParserを生成する。
-
-```text
-KoatLexer.fsl   -> obj/Generated/KoatLexer.fs
-KoatGrammar.fsy -> obj/Generated/KoatGrammar.fs
-```
-
-生成された`.fs`は編集しない。字句や文法を変更する場合は`.fsl`または`.fsy`を編集する。
-
-## テスト
-
-```powershell
-dotnet run --project tests/TerminationEngine.Tests.fsproj
-```
-
-KoATで表現できる入力はF#コードへ埋め込まず、次のfixtureフォルダーから読み込む。
-
-```text
-tests/fixtures/
-  parser/    正常な構文と演算子優先順位
-  invalid/   構文エラーと意味エラー
-  analysis/  SCC、ランキング、SMT、非停止解析
-  generated/ cil2koatが生成したKoATの独立スナップショット
-  cases/     test1.koat ～ test16.koatの総合判定
-  termination/ 2重・3重ループ、末尾再帰、相互再帰
-```
-
-F#側には期待する構文木、証明情報、または`YES`／`NO`／`MAYBE`だけを記述する。
-
 ## 使い方
 
-```powershell
-dotnet run --project TerminationEngine.fsproj -- [-t] [-i] input.koat
-```
+~~~powershell
+dotnet run --project .\termination-engine\TerminationEngine.fsproj -- [-t] [-i] [-s] input.koat
+~~~
 
-- `-t`: 停止性判定時間と総処理時間を標準エラーへ表示する。
-- `-i`: 循環SCC、ランキング証明、非停止証拠などの詳細情報を表示する。
-- オプションなし: `YES`、`NO`、`MAYBE`の判定結果だけを表示する。
+~~~bash
+dotnet run --project ./termination-engine/TerminationEngine.fsproj -- [-t] [-i] [-s] input.koat
+~~~
 
-最終的な出力：
+- -t: 判定時間と総処理時間を表示
+- -i: SCCとランキング証明の詳細を表示
+- -s: Z3／CEGISのトレースを表示
 
-```text
-YES    停止を証明した
-NO     非停止を証明した
-MAYBE  どちらも証明できなかった
-```
+`--project`で実行対象のプロジェクトを指定し、続く`--`より後ろをtermination-engineの引数として渡します。
 
-`-i`を指定し、ランキング関数で`YES`を証明した場合は、循環SCCと採用した証明書も表示する。
+## ビルド&テスト
 
-```text
-YES
-cyclic SCCs: (loop)
-(loop) ranking method: projection
-(loop) ranking: rho(x) = -x + 9 [constant=9, coefficients=[-1]]
-```
+以下のコマンドはすべてリポジトリのルートで実行
 
-`ranking method`には、最終的に成立して採用された探索方式として`projection`、`general-linear`、`z3-linear`、または`transition-removal`を表示する。不成立だった候補は表示しない。
+- Windows(Powershell)
 
-`-i`を指定した場合、`NO`と`MAYBE`でも到達可能な循環SCCを同じ括弧形式で表示する。
+~~~powershell
+dotnet build .\termination-engine\TerminationEngine.fsproj
+dotnet run --project .\termination-engine\tests\TerminationEngine.Tests.fsproj
+~~~
 
-構文・意味エラーはファイル名、行、列とともに標準エラーへ出力する。
 
-`-t`を指定すると、`Analysis.analyse`による停止性判定時間と、ファイル読み込みからレポート生成までの総処理時間を計測し、標準エラーへミリ秒単位で出力する。総処理時間にはコンソールへの出力時間を含めない。
+- Linux(Bash)
 
-```text
-停止性判定時間: 12.345 ms
-総処理時間: 15.678 ms
-```
+~~~bash
+dotnet build ./termination-engine/TerminationEngine.fsproj
+dotnet run --project ./termination-engine/tests/TerminationEngine.Tests.fsproj
+~~~
 
-判定結果は従来どおり標準出力へ出すため、結果だけをリダイレクトする既存の利用方法には影響しない。
+## 解析の流れ
 
-```text
-input.koat(5,7): KoATの構文が正しくありません。
-```
+1. CLIが入力ファイルを読み込む（Program.fs）
+2. KoATを字句・構文解析し、遷移系を構築する（KoatLexer.fsl、KoatGrammar.fsy、KoatParser.fs、Syntax.fs）
+3. 遷移系から制御フローグラフを構築する（Graph.fs）
+4. 開始位置から到達可能なSCCと循環成分を抽出する（Scc.fs、Components.fs）
+5. 式の対応可否と線形性を確認する（ExpressionAnalysis.fs、LinearArithmetic.fs）
+6. ガードから不変条件を抽出し、CFG上へ伝播する（InvariantAnalysis.fs）
+7. 自明な非停止証拠を探索する（NonTermination.fs）
+8. 射影・一般線形・辞書式ランキングを合成・検証する（Ranking.fs、RankingSynthesis.fs、RankingVerification.fs、RankingCertificate.fs）
+9. 必要な反例検査とCEGISをZ3で実行する（Z3Encoding.fs、Z3Backend.fs、Smt.fs、SmtTrace.fs）
+10. SCCごとの結果を全体のYES／NO／MAYBEへ統合する（Analysis.fs）
+11. 判定結果と証明情報を表示する（Report.fs、Program.fs）
 
-終了コード:
+不変条件の伝播は、線形なガードとアフィン更新だけを対象にした保守的な解析です。合流点では全経路に共通する条件だけを残します。
 
-| コード | 意味 |
-|---:|---|
-| `0` | 解析成功 |
-| `1` | 読み込み、構文、意味検査の失敗 |
-| `2` | CLI引数の誤り |
+## Z3
 
-## 対応するKoAT形式
+Z3の問い合わせ結果は、解析中だけキャッシュします。
 
-```text
-(GOAL TERMINATION)
-(STARTTERM (FUNCTIONSYMBOLS eval))
-(VAR x y)
-(RULES
-  eval(x,y) -> loop(x,y)
-  loop(x,y) -> loop(x - 1,y + 1) [x > 0]
-)
-```
+- strict／weakランキング検証
+- CEGIS用サンプル
+- ランキング反例検査
 
-対応する要素:
+Z3のContextやASTはキャッシュせず、解析開始時にキャッシュを消去します。
 
-- `GOAL`、`STARTTERM`、`FUNCTIONSYMBOLS`、`VAR`、`RULES`
-- 整数、変数、単項マイナス
-- 加算、減算、乗算、除算、剰余、括弧
-- `=`、`!=`、`<`、`<=`、`>`、`>=`
-- `!`、`&&`、`||`
-- 省略可能な角括弧形式のガード
-- `#`から行末までのコメント
+## マルチスレッド化
 
-量化とKoATの他方言にある構文には未対応。除算と剰余は構文木へ保持するが、停止性解析上の意味付けは未実装。
+独立した処理を Array.Parallel.map で並列化しています。これは手動でThreadを生成する方式ではなく、.NETのThreadPoolを利用する方式です。
 
-## アフィン射影ランキング関数
+- 独立した循環SCCの証明探索
+- 独立した辺のZ3サンプル取得
+- strict／weak候補の辺ごとの検証
 
-循環SCCの停止証明では、状態の引数を1つ選ぶ次のランキング関数を探索する。
+各Z3問い合わせは専用のContextを使います。共有キャッシュは ConcurrentDictionary、SMTトレースの出力はロックで保護しています。CEGISの反例探索は結果の決定性を保つため逐次処理です。
 
-```text
-rho(x1,...,xn) = xi + c
-rho(x1,...,xn) = -xi + c
-```
+## 対応する式
 
-候補がSCC内のすべての内部遷移について次を満たす場合、そのSCCは停止すると判定する。
+整数、変数、加減算、乗算、除算、剰余、比較、!、&&、||に対応しています。Z3による停止証明では線形整数算術だけを扱い、未対応の非線形式は安全側に MAYBE とします。
 
-1. ガードからランキング値が非負であると確認できる。
-2. 遷移によってランキング値が1以上減少する。
+## ファイル構成
 
-例:
+### 本体
 
-```text
-loop(x) -> loop(x - 1) [x > 0]  # rho = x
-loop(x) -> loop(x + 1) [x < 0]  # rho = -x
-loop(x) -> loop(x + 1) [x < 10] # rho = 9 - x
-```
+| ファイル | 役割 |
+|---|---|
+| TerminationEngine.fsproj | 本体プロジェクト、依存パッケージ、コンパイル順、Lexer／Parser生成設定 |
+| KoatLexer.fsl | KoATの字句解析規則 |
+| KoatGrammar.fsy | KoATの構文解析規則 |
+| Syntax.fs | 式、ガード、規則、遷移系などのデータ型 |
+| KoatParser.fs | 生成Lexer／Parserの呼び出し、意味検査、エラー位置の整理 |
+| Graph.fs | 遷移系から制御フローグラフを構築 |
+| Scc.fs | 開始位置から到達可能なSCCをTarjan法で抽出 |
+| Components.fs | 循環SCC、内部辺、入口辺、出口辺を整理 |
+| ExpressionAnalysis.fs | 式の変数、全域性、Z3対応可否などを解析 |
+| NonTermination.fs | 自明な非停止経路を検出 |
+| LinearArithmetic.fs | 線形整数式、ランキング関数の代入、係数処理 |
+| Smt.fs | Z3検証結果の共通型 |
+| SmtTrace.fs | SMT／CEGISトレースの出力とイベント番号管理 |
+| Z3Encoding.fs | 内部表現をZ3の整数式へ変換 |
+| Z3Backend.fs | Z3反例検査、サンプル取得、問い合わせキャッシュ、辺並列化 |
+| InvariantAnalysis.fs | ガードから不変条件を抽出し、CFG上で保守的に伝播 |
+| RankingCertificate.fs | ランキング証明書とStrict／Weak辺の型 |
+| RankingVerification.fs | 構文的なランキング減少、下限、遷移除去の検証 |
+| RankingSynthesis.fs | 射影・一般線形・CEGIS・辞書式ランキングの合成 |
+| Ranking.fs | ランキング探索機能の公開窓口 |
+| Analysis.fs | SCCごとの非停止判定、ランキング探索、全体結果の統合 |
+| Report.fs | YES／NO／MAYBEと詳細証明の表示 |
+| Program.fs | CLI引数、入力読み込み、時間計測、終了コード |
+| README.md | 本プロジェクトの説明と実行方法 |
+| .gitignore | ビルド生成物などをGit管理から除外 |
 
-非負性は、論理積に含まれる線形な比較から保守的に確認する。候補探索では定数倍を含む線形式を扱えるが、変数同士の乗算、除算、剰余、論理和などについて証明できない場合は`YES`とせず`MAYBE`に残す。
+### テスト
 
-定数`c`は各内部辺のガードから得られる整数下限を使い、ランキング値を非負にする最小値を合成する。SCC内の全内部遷移で同じランキング関数が厳密に減少する方式に加え、後述のtransition removalにも対応する。辞書式ランキングと多相ランキングには未対応。
-
-一般線形ランキングでは、係数領域`{-1,0,1}`から非ゼロの係数ベクトルを列挙する。単一変数だけを使う候補を優先し、候補数の指数的増加を抑えるためarityは最大6に制限する。`x + y + c`のような候補も停止判定へ接続済みである。
-
-`LinearRanking`の係数と定数項を遷移規則の引数へ代入し、更新前後の`LinearForm`を構築する処理も実装している。arity不一致と、非ゼロ係数が掛かる非線形式は近似せず拒否する。
-
-一般線形候補の厳密減少はZ3で検証する。各内部辺について`guard && rho_before < 0`と`guard && rho_before < rho_after + 1`を反例問い合わせとして送り、両方が`UNSAT`の場合だけ受理する。このため`loop(x) -> loop(0) [x > 0]`のように差へ状態変数が残る更新も証明できる。問い合わせのタイムアウトは1秒で、`SAT`は候補不成立、`UNKNOWN`や未対応式は証明不能として扱う。
-
-Z3への変換対象は線形整数算術である。変数同士の乗算、除算、剰余は近似せず拒否するため、それらを含む証明条件から誤って`YES`を返すことはない。
-
-一般線形候補の係数部分と同じ形の比較をガードから探し、整数下限を抽出して非負性に必要な定数項を合成する処理も実装している。論理積では最も強い下限を採用し、SCC内の全内部辺が要求する定数項の最大値を使用する。係数形が一致しない比較は下限として利用しない。
-
-停止判定では、まず既存のアフィン射影を探索し、失敗した循環SCCだけ一般線形候補を係数の小さい順に検査する。定数項を合成でき、かつ全内部辺でランキング値が1以上減少する最初の候補を証明書として採用する。
-
-有限候補でも失敗した場合は、Z3によるCEGIS（反例誘導合成）で係数と定数項を整数変数として合成する。係数は`{-1,0,1}`へ制限しない。まず各遷移の具体状態から係数に関する線形制約を解き、得た候補について既存の全状態反例検査を行う。反例が見つかれば、その状態の非負性・減少性制約を追加して再合成する。
-
-例えば、次の2更新を持つループでは、小係数候補ではなく`rho(x,y) = 3*x + 2*y`を合成する。
-
-```text
-loop(x,y) -> loop(x - 1,y + 1) [3*x + 2*y > 0]
-loop(x,y) -> loop(x + 1,y - 2) [3*x + 2*y > 0]
-```
-
-合成候補は必ず独立したZ3反例検査を通過した場合だけ証明書として採用する。CEGISは最大128反復、各Z3問い合わせは1秒であり、`UNKNOWN`、未対応式、反復上限では証明成功にせず`MAYBE`へ残す。このため任意整数係数を探索できるが、線形ランキングの完全な決定手続きではない。
-
-全辺での厳密減少に失敗した場合は、非増加＋必須減少によるtransition removalも試す。全内部辺が`Strict`または`Weak`で、少なくとも1本が`Strict`、かつ`Weak`辺だけのグラフが非循環になる候補を受理する。ランキング値の下限を全内部辺のガードから合成できない場合は、安全側に候補を不採用とする。証明書にはStrict辺とWeak辺を保持する。
-
-現在、Z3による反例検査は全内部辺がStrictになるランキング経路へ適用する。transition removalは、Weak辺の非循環性と入口条件の限定伝播を含む専用の構文的検査を使う。
-
-Strict辺自身のガードから下限を得られない場合は、その直後にSCC内で実行を継続する全内部辺のガードを調べる。全ての直後内部辺が同じランキング式の下限を与える場合、その最弱下限をStrict辺の実行前にも利用する。出口へ進む実行は有限なので対象外とする。複数段のWeak経路を越えたガード逆伝播は未対応である。
-
-複数の到達可能な循環SCCがある場合は、すべてのSCCを証明できたときだけ全体を`YES`とする。
-
-## 処理の流れ
-
-```text
-.koat文字列
-  -> KoatLexer.fsl（字句解析）
-  -> KoatGrammar.fsy（構文解析）
-  -> TransitionSystem（型付き内部表現）
-  -> KoatParser.fs（意味検査）
-  -> Graph.fs（制御フローグラフ）
-  -> Scc.fs（開始位置からTarjan法）
-  -> Components.fs（循環SCCと入出辺の構築）
-  -> ExpressionAnalysis.fs（式と規則の全域性検査）
-  -> NonTermination.fs（自明な非停止証明）
-  -> LinearArithmetic.fs（アフィン整数式への安全な変換）
-  -> Z3Encoding.fs / Z3Backend.fs（線形整数算術の反例検査）
-  -> RankingVerification.fs（ランキング証明書の検査）
-  -> RankingSynthesis.fs（射影ランキング関数の探索）
-  -> Ranking.fs（ランキング解析の公開窓口）
-  -> Analysis.fs（循環SCCの分類と判定の統合）
-  -> Report.fs（YES、NO、MAYBE）
-```
-
-パーサーは規則ごとに元ファイルの行・列を保持する。これは将来、停止性の判定理由や非停止経路を入力規則へ対応付けるために使用する。
-
-意味検査では次を確認する。
-
-- `VAR`宣言に重複がない
-- 式で使う変数が宣言済みである
-- 同じ関数記号の引数数が一貫している
-- 開始関数記号に対応する規則が存在する
-
-## コードからの利用
-
-例外を使う場合:
-
-```fsharp
-let system = KoatParser.parse text
-```
-
-エラーを値として受け取る場合:
-
-```fsharp
-match KoatParser.tryParse text with
-| Ok system -> printfn "%d rules" system.Rules.Length
-| Error error ->
-    printfn "%d:%d %s" error.Position.Line error.Position.Column error.Message
-```
-
-# ファイル構成
-
-```text
-termination-engine/
-  Syntax.fs                    構文木と遷移系の型
-  KoatLexer.fsl                FsLex字句規則
-  KoatGrammar.fsy              FsYacc文法規則
-  KoatParser.fs                パーサーFacadeと意味検査
-  Graph.fs                     制御フローグラフ構築
-  Scc.fs                       開始位置からのTarjan SCC分解
-  Components.fs                循環SCCと入出辺の構築
-  ExpressionAnalysis.fs        式と規則の共通解析
-  NonTermination.fs            自明な非停止証明
-  LinearArithmetic.fs          bigintによるアフィン整数式の表現と変換
-  Smt.fs                       SMT検証結果の共通型
-  Z3Encoding.fs                構文木と線形式のZ3式への変換
-  Z3Backend.fs                 ランキング条件の反例問い合わせ
-  RankingCertificate.fs        ランキング証明書の型
-  RankingVerification.fs       ランキング証明書の検査
-  RankingSynthesis.fs          射影ランキング関数の探索
-  Ranking.fs                   ランキング解析の公開窓口
-  Analysis.fs                  循環SCCの分類と判定の統合
-  Report.fs                    判定結果の表示
-  Program.fs                   CLI
-  TerminationEngine.fsproj     本体プロジェクト
-```
+| パス | 役割 |
+|---|---|
+| tests/TerminationEngine.Tests.fsproj | テスト用プロジェクト。本体プロジェクトを参照 |
+| tests/Program.fs | パーサー、SCC、ランキング、Z3、統合判定を実行するテストランナー |
+| tests/fixtures/parser/ | 正常な構文、演算子優先順位、コメントの入力 |
+| tests/fixtures/invalid/ | 構文エラー、未宣言変数、引数数不一致の入力 |
+| tests/fixtures/analysis/ | SCC、不変条件、ランキング、Z3、非停止解析の入力 |
+| tests/fixtures/generated/ | cil2koatが生成したKoATのスナップショット |
+| tests/fixtures/cases/ | test1.koat〜test16.koatの総合ケース |
+| tests/fixtures/termination/ | 入れ子ループ、CEGIS、末尾再帰、相互再帰などの停止性ケース |

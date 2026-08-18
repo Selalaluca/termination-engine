@@ -1,0 +1,13 @@
+# F#: let affineSingle x y = while 3 * x + 2 * y > 0 do
+#        if branch then (x <- x - 1; y <- y + 1)
+#        else (x <- x + 1; y <- y - 2)
+# The unrestricted baseline CEGIS path finds rho = 3*x + 2*y.
+(GOAL TERMINATION)
+(STARTTERM (FUNCTIONSYMBOLS main))
+(VAR x y)
+(RULES
+  main(x,y) -> loop(x,y)
+  loop(x,y) -> loop(x - 1,y + 1) [3*x + 2*y > 0]
+  loop(x,y) -> loop(x + 1,y - 2) [3*x + 2*y > 0]
+  loop(x,y) -> done(x,y) [3*x + 2*y <= 0]
+)
